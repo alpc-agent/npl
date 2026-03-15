@@ -31,6 +31,7 @@ class Recommendation:
     reasoning: str
     adp_rank: int = 0  # Mr. Cheatsheet's objective rank (by ADP among available)
     tiers: list[TierInfo] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
     @property
     def best_tier(self) -> TierInfo | None:
@@ -105,7 +106,15 @@ class Optimizer:
             r.total_score,
             -(r.best_tier.tier if r.best_tier else 99),
         ), reverse=True)
-        return recs[:n]
+        recs = recs[:n]
+
+        # Assign tags: copy from player + derive "value" tag
+        for i, r in enumerate(recs, 1):
+            r.tags = list(r.player.tags)
+            if r.adp_rank >= i + 15:
+                r.tags.append("value")
+
+        return recs
 
     def _compute_z_scores(
         self, players: list[Player], pool: str | None = None
@@ -469,6 +478,11 @@ class Optimizer:
         tiers: list[TierInfo],
     ) -> str:
         parts = []
+
+        # Player tags
+        if player.tags:
+            tag_labels = {"rookie": "ROOKIE", "breakout": "BREAKOUT CANDIDATE", "sleeper": "SLEEPER"}
+            parts.append(" | ".join(tag_labels.get(t, t.upper()) for t in player.tags))
 
         # Value assessment
         if z_val > 3:

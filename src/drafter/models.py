@@ -17,6 +17,7 @@ class Player:
     hitting_projections: dict[str, float] = field(default_factory=dict)
     pitching_projections: dict[str, float] = field(default_factory=dict)
     adp: float = 999.0
+    tags: list[str] = field(default_factory=list)
 
     @property
     def is_hitter(self) -> bool:
@@ -28,7 +29,8 @@ class Player:
 
     def __str__(self) -> str:
         pos = "/".join(self.positions)
-        return f"{self.name} ({pos}, {self.team}) ADP: {self.adp:.0f}"
+        tag_str = " " + " ".join(f"[{t.upper()}]" for t in self.tags) if self.tags else ""
+        return f"{self.name} ({pos}, {self.team}) ADP: {self.adp:.0f}{tag_str}"
 
 
 @dataclass

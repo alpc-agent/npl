@@ -17,12 +17,14 @@ class Draft:
         self,
         players_path: str = "data/players.json",
         state_path: str = "draft_state.json",
+        tags_path: str = "data/tags.json",
         config: LeagueConfig | None = None,
     ):
         self.config = config or LeagueConfig()
         self.state_path = Path(state_path)
         self.players: dict[str, Player] = {}
         self._load_players(players_path)
+        self._load_tags(tags_path)
 
         if self.state_path.exists():
             self.state = DraftState.load(self.state_path)
@@ -47,6 +49,22 @@ class Draft:
                 adp=p.get("adp", 999),
             )
             self.players[p["name"]] = player
+
+    def _load_tags(self, path: str) -> None:
+        """Load player tags from tags.json and attach to Player objects."""
+        tags_path = Path(path)
+        if not tags_path.exists():
+            return
+        with open(tags_path, encoding="utf-8") as f:
+            data = json.load(f)
+        for tag_type in ("rookie", "breakout", "sleeper"):
+            for name in data.get(tag_type, []):
+                try:
+                    player = self._resolve_player(name)
+                    if tag_type not in player.tags:
+                        player.tags.append(tag_type)
+                except ValueError:
+                    pass
 
     def _normalize(self, text: str) -> str:
         nfkd = unicodedata.normalize("NFKD", text)

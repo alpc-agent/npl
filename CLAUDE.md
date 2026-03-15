@@ -84,7 +84,9 @@ recs = opt.recommend(available, my_roster, n=10, pool="pitcher")
 for i, r in enumerate(recs, 1):
     pos = '/'.join(r.player.positions)
     tier = r.best_tier.tier_label if r.best_tier else '-'
-    print(f"{i}. {r.player.name} ({pos}) — AI Score: {r.total_score} | Cheatsheet Rank: #{r.adp_rank}")
+    tags = ' '.join(f'[{t.upper()}]' for t in r.tags)
+    tag_str = f' {tags}' if tags else ''
+    print(f"{i}. {r.player.name} ({pos}){tag_str} — AI: {r.total_score} | Cheatsheet: #{r.adp_rank}")
     print(f"   Tier: {tier}")
     print(f"   Value: {r.z_score_value} | Scarcity: {r.scarcity_bonus} | Need: {r.need_bonus}")
     print(f"   {r.reasoning}")
@@ -135,8 +137,22 @@ Before the draft, update `league.json` with:
 
 The sheet must be shared as "Anyone with the link can view" for the CSV export to work.
 
+## Pre-Draft Player Tags
+
+`data/tags.json` stores editorial tags for rookies, breakout candidates, and sleepers.
+These come from web research of current expert consensus — **never guess names**.
+
+To refresh before a draft:
+1. Search for "2026 fantasy baseball rookies", "breakout candidates", "sleepers"
+2. Cross-reference names against `data/players.json` (fuzzy matching handles accents)
+3. Update `data/tags.json` with verified names
+
+Tags appear in recommendations as `[ROOKIE]`, `[BREAKOUT]`, `[SLEEPER]`, `[VALUE]`.
+The `value` tag is computed at runtime (ADP rank 15+ spots worse than AI rank).
+
 ## Key Files
 - `data/players.json` — 933 players with projections from Mr. Cheatsheet's Special Blend
+- `data/tags.json` — Player tags: rookies, breakout candidates, sleepers (from web research)
 - `league.json` — League config: sheet IDs, owner names, draft position
 - `draft_state.json` — Live draft state (auto-saved, .gitignored)
 - `src/drafter/sheets.py` — Google Sheets reader (CSV export, no auth needed)
