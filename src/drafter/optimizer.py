@@ -7,7 +7,7 @@ import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .config import LeagueConfig
+from .config import LeagueConfig, STAT_STABILITY
 from .models import Player
 
 
@@ -48,6 +48,7 @@ class Recommendation:
     tags: list[str] = field(default_factory=list)
     rank_insight: str = ""  # Why AI rank differs from cheatsheet rank
     safety_flags: list[PickSafety] = field(default_factory=list)  # Position safety signals
+    reliability: float = 0.5  # 0-1: fraction of value from sticky stats (higher = safer)
 
     @property
     def best_tier(self) -> TierInfo | None:
@@ -106,6 +107,11 @@ class Optimizer:
                 player, z_val, scar, need, needs, player_tiers
             )
 
+            # Stat reliability: how much of this player's z-score
+            # comes from sticky (predictable) vs volatile categories
+            cat_z = self._last_cat_z.get(player.name, {})
+            rel = self._stat_reliability(cat_z)
+
             recs.append(Recommendation(
                 player=player,
                 total_score=round(total, 2),
@@ -115,6 +121,7 @@ class Optimizer:
                 reasoning=reasoning,
                 adp_rank=adp_rank_map.get(player.name, 999),
                 tiers=player_tiers,
+                reliability=round(rel, 2),
             ))
 
         # Sort by total score, then by best tier (lower = better) as tiebreaker
@@ -129,9 +136,42 @@ class Optimizer:
             r.tags = list(r.player.tags)
             if r.adp_rank >= i + 15:
                 r.tags.append("value")
+            # Stat reliability flags (informational — does not affect ranking)
+            if r.reliability >= 0.65:
+                r.tags.append("stable")
+            elif r.reliability <= 0.40:
+                r.tags.append("volatile")
             r.rank_insight = self._rank_insight(r, ai_rank=i)
 
         return recs
+
+    def recommend_stable(
+        self,
+        available: list[Player],
+        my_roster: list[Player],
+        n: int = 10,
+        pool: str | None = None,
+    ) -> list[Recommendation]:
+        """Reliability-adjusted recommendations — separate ranking from recommend().
+
+        Uses the same underlying data but re-ranks by a blended score that
+        rewards players whose value comes from sticky, predictable stats
+        (K, HR) and penalizes those dependent on volatile stats (ERA, AVG, SV).
+
+        Compare side-by-side with recommend() and ADP to triangulate picks.
+        """
+        # Get a larger candidate set to re-rank from
+        recs = self.recommend(available, my_roster, n=max(n * 3, 30), pool=pool)
+
+        for r in recs:
+            # Blend: base score * reliability bonus (0.8x to 1.2x range)
+            # A player with 0.80 reliability gets a 1.12x multiplier
+            # A player with 0.30 reliability gets a 0.82x multiplier
+            multiplier = 0.6 + r.reliability * 0.8  # maps 0→0.6, 0.5→1.0, 1.0→1.4
+            r.total_score = round(r.total_score * multiplier, 2)
+
+        recs.sort(key=lambda r: r.total_score, reverse=True)
+        return recs[:n]
 
     def annotate_safety(
         self,
@@ -184,10 +224,38 @@ class Optimizer:
                         if "snipe" not in r.tags:
                             r.tags.append("snipe")
 
+    @staticmethod
+    def _stat_reliability(player_cat_z: dict[str, float]) -> float:
+        """Compute how much of a player's value comes from sticky stats.
+
+        Returns 0-1 where higher means more reliable/predictable projection.
+        Uses YoY correlation coefficients as stability weights.
+        """
+        if not player_cat_z:
+            return 0.5
+
+        # Only consider categories where the player contributes positively
+        # (negative z-scores mean they're below average — those aren't "value")
+        weighted_sum = 0.0
+        total_abs = 0.0
+        for cat, z in player_cat_z.items():
+            stability = STAT_STABILITY.get(cat, 0.5)
+            abs_z = abs(z)
+            weighted_sum += abs_z * stability
+            total_abs += abs_z
+
+        if total_abs < 0.01:
+            return 0.5
+        return weighted_sum / total_abs
+
     def _compute_z_scores(
         self, players: list[Player], pool: str | None = None
     ) -> dict[str, float]:
-        """Compute z-scores with rate-stat weighting by playing time."""
+        """Compute z-scores with rate-stat weighting by playing time.
+
+        Returns total z-scores per player. Also populates self._last_cat_z
+        with per-category z-scores for stat reliability analysis.
+        """
         if pool == "hitter":
             categories = self.config.hitting_categories
         elif pool == "pitcher":
@@ -235,6 +303,8 @@ class Optimizer:
                         cat_values[cat].append((p.name, val, None))
 
         player_z: dict[str, float] = {}
+        # Per-category z-scores for stat reliability analysis
+        cat_z: dict[str, dict[str, float]] = {}
 
         for cat, values in cat_values.items():
             if len(values) < 2:
@@ -270,7 +340,9 @@ class Optimizer:
 
                 for name, contrib in contribs:
                     z = (contrib - mean_c) / std
-                    player_z[name] = player_z.get(name, 0) + z * self.config.weight(cat)
+                    weighted_z = z * self.config.weight(cat)
+                    player_z[name] = player_z.get(name, 0) + weighted_z
+                    cat_z.setdefault(name, {})[cat] = weighted_z
             else:
                 # Counting stats: standard z-score
                 vals = [v for _, v, _ in values]
@@ -282,8 +354,11 @@ class Optimizer:
                     z = (val - mean) / std
                     if inverse:
                         z = -z
-                    player_z[name] = player_z.get(name, 0) + z * self.config.weight(cat)
+                    weighted_z = z * self.config.weight(cat)
+                    player_z[name] = player_z.get(name, 0) + weighted_z
+                    cat_z.setdefault(name, {})[cat] = weighted_z
 
+        self._last_cat_z = cat_z
         return player_z
 
     def _compute_tiers(

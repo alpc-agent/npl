@@ -5,6 +5,25 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
+# Year-over-year correlation coefficients (r) per fantasy category.
+# Source: FanGraphs 2002-2012 metric correlation studies.
+# Higher = more predictable/sticky, lower = more volatile/fluky.
+STAT_STABILITY: dict[str, float] = {
+    # Hitting
+    "AVG": 0.43,   # BABIP-dependent, ~910 AB to stabilize
+    "HR": 0.74,    # HR/PA rate; backed by barrel rate (r=0.79), max EV (r=0.81)
+    "R": 0.55,     # Part skill (OBP r=0.61), part lineup context
+    "RBI": 0.55,   # Part skill (ISO r=0.72), part lineup context
+    "SB": 0.60,    # Sprint speed is sticky; volume depends on opportunity
+    # Pitching
+    "QS": 0.55,    # Driven by sticky skills (K% r=0.80, BB% r=0.71) + IP durability
+    "SV": 0.20,    # Almost entirely role-dependent, not skill-dependent
+    "K": 0.80,     # K/9 r=0.803 — the stickiest traditional pitching stat
+    "ERA": 0.37,   # BABIP/LOB%/HR-FB noise; xFIP (r=0.70) predicts next-yr ERA better
+    "WHIP": 0.43,  # Modestly stickier than ERA; still BABIP-influenced
+}
+
+
 @dataclass
 class LeagueConfig:
     num_teams: int = 12

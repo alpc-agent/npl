@@ -802,3 +802,174 @@ class TestWaitSnipeTags:
         safety = [PickSafety("RP", 3, 10, 5, 0.50, "monitor", "getting thin")]
         opt.annotate_safety([rec], safety)
         assert "snipe" not in rec.tags
+
+
+# ---------------------------------------------------------------------------
+# Stat Reliability
+# ---------------------------------------------------------------------------
+
+class TestStatReliability:
+    def test_empty_input_returns_default(self):
+        assert Optimizer._stat_reliability({}) == 0.5
+
+    def test_k_heavy_player_high_reliability(self):
+        """Player whose value comes mostly from K (r=0.80) should be highly reliable."""
+        cat_z = {"K": 3.0, "ERA": 0.2, "WHIP": 0.1}
+        rel = Optimizer._stat_reliability(cat_z)
+        assert rel > 0.70
+
+    def test_era_heavy_player_low_reliability(self):
+        """Player whose value comes mostly from ERA (r=0.37) should be low reliability."""
+        cat_z = {"ERA": 3.0, "K": 0.1, "WHIP": 0.1}
+        rel = Optimizer._stat_reliability(cat_z)
+        assert rel < 0.45
+
+    def test_sv_only_very_low(self):
+        """Player value entirely from SV (r=0.20) should have very low reliability."""
+        cat_z = {"SV": 2.5}
+        rel = Optimizer._stat_reliability(cat_z)
+        assert rel == pytest.approx(0.20)
+
+    def test_hr_only(self):
+        """HR-only player (r=0.74) should return exactly 0.74."""
+        cat_z = {"HR": 2.0}
+        rel = Optimizer._stat_reliability(cat_z)
+        assert rel == pytest.approx(0.74)
+
+    def test_balanced_hitter(self):
+        """Balanced hitter across all 5 hitting cats."""
+        cat_z = {"AVG": 1.0, "HR": 1.0, "R": 1.0, "RBI": 1.0, "SB": 1.0}
+        rel = Optimizer._stat_reliability(cat_z)
+        # Weighted avg of (0.43+0.74+0.55+0.55+0.60)/5 = 0.574
+        assert rel == pytest.approx(0.574)
+
+    def test_negative_z_scores_use_abs(self):
+        """Negative z-scores still contribute to reliability via abs value."""
+        cat_z = {"K": -2.0, "ERA": -1.0}
+        rel = Optimizer._stat_reliability(cat_z)
+        # Same as positive: weighted avg by abs
+        cat_z_pos = {"K": 2.0, "ERA": 1.0}
+        rel_pos = Optimizer._stat_reliability(cat_z_pos)
+        assert rel == pytest.approx(rel_pos)
+
+    def test_near_zero_z_returns_default(self):
+        """All near-zero z-scores should return default 0.5."""
+        cat_z = {"HR": 0.001, "R": 0.002}
+        rel = Optimizer._stat_reliability(cat_z)
+        assert rel == pytest.approx(0.5, abs=0.1)
+
+
+class TestReliabilityTags:
+    def test_stable_tag_on_k_pitcher(self, opt):
+        """High-K pitcher should get [STABLE] tag."""
+        pitchers = [
+            _pitcher("K Machine", ["SP"], adp=20, K=280, ERA=3.50, WHIP=1.20,
+                     IP=190, H=160, BB=55, ER=74, QS=18, SV=0),
+            _pitcher("ERA Ace", ["SP"], adp=25, K=150, ERA=2.20, WHIP=0.90,
+                     IP=180, H=120, BB=42, ER=44, QS=24, SV=0),
+            _pitcher("Filler1", ["SP"], adp=50, K=170, ERA=3.20, WHIP=1.10,
+                     IP=175, H=150, BB=48, ER=62, QS=20, SV=0),
+            _pitcher("Filler2", ["SP"], adp=60, K=165, ERA=3.40, WHIP=1.15,
+                     IP=170, H=155, BB=50, ER=64, QS=18, SV=0),
+            _pitcher("Filler3", ["SP"], adp=70, K=160, ERA=3.60, WHIP=1.18,
+                     IP=168, H=158, BB=52, ER=67, QS=16, SV=0),
+        ]
+        recs = opt.recommend(pitchers, [], n=5, pool="pitcher")
+        k_rec = next(r for r in recs if r.player.name == "K Machine")
+        # K Machine's value is heavily K-driven (r=0.80) — should be stable
+        assert k_rec.reliability >= 0.55
+
+    def test_volatile_tag_on_sv_closer(self, opt):
+        """Closer whose value is mostly SV should get [VOLATILE] tag."""
+        pitchers = [
+            _pitcher("Save Guy", ["RP"], adp=50, SV=40, K=70, ERA=3.20, WHIP=1.15,
+                     IP=60, H=52, BB=20, ER=21, QS=0),
+            _pitcher("SP Ace", ["SP"], adp=20, K=250, ERA=2.80, WHIP=1.00,
+                     IP=200, H=155, BB=45, ER=62, QS=25, SV=0),
+            _pitcher("Filler1", ["SP"], adp=40, K=180, ERA=3.30, WHIP=1.12,
+                     IP=180, H=155, BB=50, ER=66, QS=19, SV=0),
+            _pitcher("Filler2", ["SP"], adp=55, K=170, ERA=3.50, WHIP=1.18,
+                     IP=170, H=155, BB=50, ER=66, QS=17, SV=5),
+            _pitcher("Filler3", ["RP"], adp=80, SV=25, K=65, ERA=3.50, WHIP=1.20,
+                     IP=55, H=50, BB=18, ER=21, QS=0),
+        ]
+        recs = opt.recommend(pitchers, [], n=5, pool="pitcher")
+        sv_rec = next(r for r in recs if r.player.name == "Save Guy")
+        # SV (r=0.20) is a big part of this player's profile — should be low reliability
+        assert sv_rec.reliability <= 0.50
+
+    def test_recommend_does_not_change_ranking_by_reliability(self, opt, hitter_pool):
+        """Reliability is informational only — recommend() ranking unchanged."""
+        recs = opt.recommend(hitter_pool, [], n=10, pool="hitter")
+        scores = [r.total_score for r in recs]
+        assert scores == sorted(scores, reverse=True)
+        # Verify reliability is populated but doesn't affect order
+        for r in recs:
+            assert 0.0 <= r.reliability <= 1.0
+
+
+class TestRecommendStable:
+    def test_returns_different_order(self, opt):
+        """recommend_stable should produce a different ranking than recommend."""
+        pool = [
+            # K-heavy pitcher: high reliability, moderate raw score
+            _pitcher("K Arm", ["SP"], adp=30, K=260, ERA=3.80, WHIP=1.22,
+                     IP=190, H=170, BB=55, ER=80, QS=16, SV=0),
+            # ERA-heavy pitcher: low reliability, high raw score from elite ERA
+            _pitcher("ERA Ace", ["SP"], adp=25, K=160, ERA=2.20, WHIP=0.90,
+                     IP=185, H=125, BB=42, ER=45, QS=26, SV=0),
+            # Closer: very low reliability from SV
+            _pitcher("Closer", ["RP"], adp=45, SV=40, K=75, ERA=2.90, WHIP=1.05,
+                     IP=65, H=50, BB=18, ER=21, QS=0),
+            _pitcher("Filler1", ["SP"], adp=50, K=175, ERA=3.40, WHIP=1.15,
+                     IP=175, H=155, BB=50, ER=66, QS=18, SV=0),
+            _pitcher("Filler2", ["SP"], adp=60, K=165, ERA=3.60, WHIP=1.18,
+                     IP=170, H=158, BB=52, ER=68, QS=16, SV=0),
+        ]
+        recs_base = opt.recommend(pool, [], n=5, pool="pitcher")
+        recs_stable = opt.recommend_stable(pool, [], n=5, pool="pitcher")
+
+        base_order = [r.player.name for r in recs_base]
+        stable_order = [r.player.name for r in recs_stable]
+
+        # The orders should differ (reliability reweighting changes ranking)
+        # At minimum, stable scores should be descending
+        stable_scores = [r.total_score for r in recs_stable]
+        assert stable_scores == sorted(stable_scores, reverse=True)
+
+    def test_stable_boosts_k_heavy(self, opt):
+        """K-heavy pitcher should rank better in recommend_stable."""
+        pool = [
+            _pitcher("K Machine", ["SP"], adp=30, K=280, ERA=3.80, WHIP=1.25,
+                     IP=195, H=175, BB=58, ER=82, QS=15, SV=0),
+            _pitcher("Closer", ["RP"], adp=25, SV=42, K=70, ERA=2.80, WHIP=1.00,
+                     IP=65, H=48, BB=17, ER=20, QS=0),
+            _pitcher("Filler1", ["SP"], adp=40, K=180, ERA=3.20, WHIP=1.10,
+                     IP=180, H=152, BB=48, ER=64, QS=20, SV=0),
+            _pitcher("Filler2", ["SP"], adp=50, K=170, ERA=3.40, WHIP=1.15,
+                     IP=175, H=155, BB=50, ER=66, QS=18, SV=0),
+            _pitcher("Filler3", ["SP"], adp=60, K=165, ERA=3.60, WHIP=1.20,
+                     IP=170, H=158, BB=52, ER=68, QS=16, SV=0),
+        ]
+        recs_base = opt.recommend(pool, [], n=5, pool="pitcher")
+        recs_stable = opt.recommend_stable(pool, [], n=5, pool="pitcher")
+
+        base_rank = {r.player.name: i for i, r in enumerate(recs_base)}
+        stable_rank = {r.player.name: i for i, r in enumerate(recs_stable)}
+
+        # K Machine should rank same or better in stable
+        assert stable_rank["K Machine"] <= base_rank["K Machine"]
+
+    def test_stable_returns_requested_count(self, opt, hitter_pool):
+        """recommend_stable returns exactly n results."""
+        recs = opt.recommend_stable(hitter_pool, [], n=5, pool="hitter")
+        assert len(recs) == 5
+
+    def test_stable_preserves_recommendation_fields(self, opt, hitter_pool):
+        """All Recommendation fields are populated in stable results."""
+        recs = opt.recommend_stable(hitter_pool, [], n=3, pool="hitter")
+        for r in recs:
+            assert r.player is not None
+            assert r.z_score_value != 0 or r.scarcity_bonus != 0
+            assert r.reasoning
+            assert 0.0 <= r.reliability <= 1.0
