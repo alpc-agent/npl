@@ -946,32 +946,20 @@ class Optimizer:
 
     def league_relative_dashboard(
         self, my_roster: list[Player],
+        available: list[Player] | None = None,
         history_path: str = "data/league_history.json",
     ) -> dict:
         """Category projections ranked against last season's actual league stats.
 
-        For counting stats (HR, R, RBI, SB, K, QS, SV), scales the current
-        roster's per-player average to a full roster projection so that a
-        3-player roster mid-draft gives a meaningful comparison.
-
-        Rate stats (AVG, ERA, WHIP) are used as-is since they don't scale
-        with roster size.
+        Fills unfilled roster slots with next-best available players (by ADP)
+        to project a realistic full-season roster, then ranks against
+        historical league data.
 
         Returns projected league rank (1-12) and percentage delta vs median.
         For inverse stats (ERA, WHIP), sign is flipped so + always = good.
         """
         import json
-        my_proj = self.analyze_roster(my_roster)
 
-        with open(history_path, encoding="utf-8") as f:
-            history = json.load(f)
-
-        hist_teams = history["teams"]
-        rate_stats = {"AVG"} | set(self.config.inverse_categories)
-
-        # Scale counting stats to full roster projection
-        n_hitters = sum(1 for p in my_roster if p.is_hitter)
-        n_pitchers = sum(1 for p in my_roster if p.is_pitcher)
         target_hitters = sum(
             v for k, v in self.config.roster_slots.items()
             if k not in ("SP", "RP")
@@ -981,17 +969,35 @@ class Optimizer:
             if k in ("SP", "RP")
         )
 
-        scaled: dict[str, float] = {}
-        for cat in self.config.all_categories:
-            val = my_proj.get(cat, 0)
-            if cat in rate_stats or val == 0:
-                scaled[cat] = val
-            elif cat in self.config.hitting_categories:
-                scale = target_hitters / n_hitters if n_hitters > 0 else 0
-                scaled[cat] = round(val * scale, 1)
-            else:
-                scale = target_pitchers / n_pitchers if n_pitchers > 0 else 0
-                scaled[cat] = round(val * scale, 1)
+        # Build projected full roster by filling empty slots from available pool
+        n_hitters = sum(1 for p in my_roster if p.is_hitter)
+        n_pitchers = sum(1 for p in my_roster if p.is_pitcher)
+        fill_hitters = max(0, target_hitters - n_hitters)
+        fill_pitchers = max(0, target_pitchers - n_pitchers)
+
+        projected_roster = list(my_roster)
+        if available and (fill_hitters > 0 or fill_pitchers > 0):
+            by_adp = sorted(available, key=lambda p: p.adp)
+            rostered_ids = {p.player_id for p in my_roster}
+            h_filled, p_filled = 0, 0
+            for p in by_adp:
+                if p.player_id in rostered_ids:
+                    continue
+                if h_filled >= fill_hitters and p_filled >= fill_pitchers:
+                    break
+                if p.is_hitter and h_filled < fill_hitters:
+                    projected_roster.append(p)
+                    h_filled += 1
+                elif p.is_pitcher and p_filled < fill_pitchers:
+                    projected_roster.append(p)
+                    p_filled += 1
+
+        my_proj = self.analyze_roster(my_roster)
+        scaled = self.analyze_roster(projected_roster)
+
+        with open(history_path, encoding="utf-8") as f:
+            history = json.load(f)
+        hist_teams = history["teams"]
 
         rankings: dict[str, int] = {}
         deltas: dict[str, float] = {}

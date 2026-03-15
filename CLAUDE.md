@@ -138,12 +138,19 @@ The `/my-pick` skill (`.claude/skills/my-pick/SKILL.md`) consolidates recommenda
 cheatsheet consensus, pick safety, and league-relative dashboard into a single output.
 Just say "it's my hitter pick" or "pitcher pick" and it runs the full pipeline.
 
-The league-relative dashboard compares your category projections to the average of
-all 12 teams' current rosters:
+The league-relative dashboard fills unfilled roster slots with the next-best available
+players (by ADP) to project a realistic full-season roster, then ranks against last
+season's actual league data from `data/league_history.json`.
 ```python
-rel = opt.league_relative_dashboard(d.my_roster_players(), d)
-# Returns: my_projections, league_avg, deltas (%), hint
+rel = opt.league_relative_dashboard(my_roster, available=d.available())
+# Returns: my_projections, scaled_projections, rankings (#1-12), deltas (%), hint
 ```
+
+### 3d. Sync — "sync" / "catch me up"
+The `/sync` skill (`.claude/skills/sync/SKILL.md`) pulls new picks from the Google Sheet,
+reports what happened, and shows strategy implications. Run this before your pick or any
+time you want to catch up. Shows: new picks, your roster, position runs, threat window,
+dashboard vs last season, and trends.
 
 ### 4. Manual Pick Entry
 If the sheet is behind or you need to enter a pick manually:

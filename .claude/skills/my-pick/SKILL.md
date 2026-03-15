@@ -54,7 +54,7 @@ opt.annotate_safety(recs, safety)
 cheatsheet = sorted(available, key=lambda p: p.adp)[:5]
 
 # 5. League-relative dashboard (vs last season's actual stats)
-rel = opt.league_relative_dashboard(my_roster)
+rel = opt.league_relative_dashboard(my_roster, available=d.available())
 
 # 6. Draft context
 status_pick = d.state.current_pick
