@@ -50,6 +50,9 @@ recs = opt.recommend(available, my_roster, n=5, pool=POOL)
 safety = opt.pick_safety(available, my_roster, threat, pool=POOL)
 opt.annotate_safety(recs, safety)
 
+# 3b. Reliability-adjusted recommendations (separate ranking)
+recs_stable = opt.recommend_stable(available, my_roster, n=5, pool=POOL)
+
 # 4. Cheatsheet consensus (top 5 by ADP)
 cheatsheet = sorted(available, key=lambda p: p.adp)[:5]
 
@@ -77,15 +80,16 @@ for s in safety:
         alerts.append(f"{s.position} tier depleting")
 alert_line = f"**ALERTS:** {' | '.join(alerts)}" if alerts else ""
 
-# AI recommendation table
-t_hdr = " #  Player              Pos    AI   ADP  Tier           Safety   Tags"
-t_sep = "--- ------------------- ------ ---- ---- -------------- -------- --------"
+# AI recommendation table (with reliability column)
+t_hdr = " #  Player              Pos    AI   ADP  Rel  Tier           Safety   Tags"
+t_sep = "--- ------------------- ------ ---- ---- ---- -------------- -------- --------"
 t_rows = []
 for i, r in enumerate(recs, 1):
     name = r.player.name[:19].ljust(19)
     pos = '/'.join(r.player.positions)[:6].ljust(6)
     ai = f"{r.total_score:.2f}".rjust(4)[:4]
     adp = f"#{r.adp_rank}".rjust(4)
+    rel_s = f"{r.reliability:.2f}"
     if r.best_tier:
         bt = r.best_tier
         tier_s = f"T{bt.tier} {bt.position} ({bt.remaining_in_tier} left)"[:14].ljust(14)
@@ -97,7 +101,19 @@ for i, r in enumerate(recs, 1):
     else:
         saf = "-".ljust(8)
     tag_s = ' '.join(t.upper() for t in r.tags if t not in ('safe', 'reach'))
-    t_rows.append(f" {i}  {name} {pos} {ai} {adp}  {tier_s} {saf} {tag_s}")
+    t_rows.append(f" {i}  {name} {pos} {ai} {adp}  {rel_s} {tier_s} {saf} {tag_s}")
+
+# Reliability-adjusted view (compact re-rank)
+rs_hdr = " #  Player              Pos    Adj  Rel  Tags"
+rs_sep = "--- ------------------- ------ ---- ---- --------"
+rs_rows = []
+for i, r in enumerate(recs_stable, 1):
+    name = r.player.name[:19].ljust(19)
+    pos = '/'.join(r.player.positions)[:6].ljust(6)
+    adj = f"{r.total_score:.2f}".rjust(4)[:4]
+    rel_s = f"{r.reliability:.2f}"
+    tag_s = ' '.join(t.upper() for t in r.tags if t not in ('safe', 'reach'))
+    rs_rows.append(f" {i}  {name} {pos} {adj} {rel_s} {tag_s}")
 
 # Cheatsheet consensus
 cs_parts = []
@@ -133,8 +149,9 @@ if sync_msg:
     out += [f"*{sync_msg}*", ""]
 if alert_line:
     out += [alert_line, ""]
-out += [t_hdr, t_sep] + t_rows + [""]
-out += [f"Cheatsheet consensus (what opponents see):", f" {cs_line}", ""]
+out += ["**AI Ranking:**", t_hdr, t_sep] + t_rows + [""]
+out += ["**Reliability-Adjusted (sticky stats rewarded):**", rs_hdr, rs_sep] + rs_rows + [""]
+out += [f"**Cheatsheet consensus (what opponents see):**", f" {cs_line}", ""]
 out += ["**Why:**"] + reason_lines + [""]
 out += [f"**Dashboard vs Last Season:**", f"  {dash_line}"]
 if hint_line:
@@ -170,7 +187,11 @@ print("\n".join(out))
 - Table is designed for monospace / terminal rendering. Keep column alignment.
 - Safety column = most urgent signal across player's positions (REACH > MONITOR > SAFE).
 - Tags column excludes "safe"/"reach" (shown in Safety column). Shows editorial
-  tags: ROOKIE, BREAKOUT, SLEEPER, VALUE.
+  tags: ROOKIE, BREAKOUT, SLEEPER, VALUE, STABLE, VOLATILE, WAIT, SNIPE.
+- **Rel** column shows the 0-1 reliability score. Higher = value from sticky stats
+  (K r=0.80, HR r=0.74). Lower = value from volatile stats (SV r=0.20, ERA r=0.37).
+- The **Reliability-Adjusted** section re-ranks by blending AI score with reliability.
+  Compare against the AI ranking to see which players move up/down based on stat stickiness.
 - Dashboard shows projected league rank (#1-#12) vs last season's actuals,
   plus percentage delta vs league median. + = good, - = bad (ERA/WHIP flipped).
 - ALERTS line omitted when there are no runs and no reach signals.

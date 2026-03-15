@@ -68,10 +68,12 @@ they're drafted players occupying a roster spot and draft pick.
 ### 3. Get Recommendations When It's My Turn
 **Always specify pool="hitter" or pool="pitcher"** since they are drafted separately.
 
-Each recommendation shows both perspectives:
+Each recommendation shows three perspectives:
 - **Cheatsheet Rank (`adp_rank`)**: Mr. Cheatsheet's objective consensus ranking among available players
 - **AI Score (`total_score`)**: Our optimizer's score factoring in z-scores (rate-stat weighted),
   positional scarcity, category needs, and tier depletion urgency
+- **Reliability-Adjusted (`recommend_stable`)**: Separate ranking that rewards players whose value
+  comes from sticky stats (K r=0.80, HR r=0.74) and penalizes volatile ones (SV r=0.20, ERA r=0.37)
 - **Tier info**: Position-based tier (e.g., "Tier 1 SS (3 left)") with REACH warnings when
   a tier is nearly depleted
 ```python
@@ -80,16 +82,20 @@ available = d.available(pool="hitter")
 my_roster = d.my_roster_players()
 recs = opt.recommend(available, my_roster, n=10, pool="hitter")
 
+# Reliability-adjusted view (separate ranking for comparison)
+recs_stable = opt.recommend_stable(available, my_roster, n=10, pool="hitter")
+
 # For a pitcher pick:
 available = d.available(pool="pitcher")
 recs = opt.recommend(available, my_roster, n=10, pool="pitcher")
+recs_stable = opt.recommend_stable(available, my_roster, n=10, pool="pitcher")
 
 for i, r in enumerate(recs, 1):
     pos = '/'.join(r.player.positions)
     tier = r.best_tier.tier_label if r.best_tier else '-'
     tags = ' '.join(f'[{t.upper()}]' for t in r.tags)
     tag_str = f' {tags}' if tags else ''
-    print(f"{i}. {r.player.name} ({pos}){tag_str} — AI: {r.total_score} | Cheatsheet: #{r.adp_rank}")
+    print(f"{i}. {r.player.name} ({pos}){tag_str} — AI: {r.total_score} | Cheatsheet: #{r.adp_rank} | Rel: {r.reliability:.2f}")
     print(f"   Tier: {tier}")
     print(f"   Value: {r.z_score_value} | Scarcity: {r.scarcity_bonus} | Need: {r.need_bonus}")
     print(f"   {r.reasoning}")
