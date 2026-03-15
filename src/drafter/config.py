@@ -20,6 +20,10 @@ class LeagueConfig:
         default_factory=lambda: ["ERA", "WHIP"]
     )
 
+    # Per-category weight multipliers for strategy slanting.
+    # Empty dict = all 1.0 (balanced). Values < 0.5 suppress need-chasing.
+    category_weights: dict[str, float] = field(default_factory=dict)
+
     roster_slots: dict[str, int] = field(
         default_factory=lambda: {
             "C": 1,
@@ -45,3 +49,24 @@ class LeagueConfig:
     @property
     def total_roster_size(self) -> int:
         return sum(self.roster_slots.values())
+
+    def weight(self, cat: str) -> float:
+        """Get the weight multiplier for a category (default 1.0)."""
+        return self.category_weights.get(cat, 1.0)
+
+    @classmethod
+    def with_strategy(cls, strategy: str, **kwargs) -> "LeagueConfig":
+        """Create a config with preset category weights.
+
+        Strategies: balanced, punt_sb, punt_sv, punt_avg
+        """
+        presets = {
+            "balanced": {},
+            "punt_sb": {"SB": 0.1},
+            "punt_sv": {"SV": 0.1},
+            "punt_avg": {"AVG": 0.2},
+        }
+        weights = presets.get(strategy)
+        if weights is None:
+            raise ValueError(f"Unknown strategy: {strategy!r}. Options: {list(presets)}")
+        return cls(category_weights=weights, **kwargs)

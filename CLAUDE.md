@@ -26,7 +26,9 @@ from drafter.optimizer import Optimizer
 from drafter.sheets import DraftSheetReader
 
 d = Draft()
-config = LeagueConfig()
+config = LeagueConfig()  # balanced (default)
+# Or use a strategy: config = LeagueConfig.with_strategy("punt_sb")
+# Options: "balanced", "punt_sb", "punt_sv", "punt_avg"
 opt = Optimizer(config)
 
 with open('league.json') as f:
@@ -99,17 +101,21 @@ d.pick("Player Name", "OwnerName")
 d.undo()  # Undo last pick
 ```
 
-### 5. Check Roster & Projections
+### 5. Check Roster & Category Dashboard
 ```python
 # My roster
 for pick in d.my_roster():
     p = d.players[pick.player_name]
     print(f"  Rd {pick.round_number}: {p.name} ({'/'.join(p.positions)})")
 
-# Category projections
-totals = opt.analyze_roster(d.my_roster_players())
-for cat, val in totals.items():
-    print(f"  {cat}: {val}")
+# Category dashboard — shows projections + grades + strategy hint
+dash = opt.category_dashboard(d.my_roster_players())
+for cat in config.all_categories:
+    grade = dash['grades'][cat]
+    proj = dash['projections'][cat]
+    print(f"  {cat:>4}: {proj:>8}  [{grade}]")
+if dash['strategy_hint']:
+    print(f"  >> {dash['strategy_hint']}")
 ```
 
 ### 6. Browse Available by Position
@@ -170,7 +176,9 @@ Bench: Unlimited
 ## Draft Strategy Notes
 - **QS over W**: Prioritize pitchers with high QS projections (innings eaters, low ERA SPs) over win-dependent arms
 - **Positional scarcity**: C and SS tend to be thinnest; OF is deepest
-- **Category balance**: In H2H, avoid punting categories since you need to win 5+ cats each week
+- **Category strategy**: Use `LeagueConfig.with_strategy("punt_sb")` etc. to slant toward
+  dominating 5-6 categories. Safest punts: SB, SV. Check `opt.category_dashboard()` to see
+  emerging strengths and decide when to commit
 - **ERA/WHIP**: Rate stats — consider IP volume when evaluating pitchers
 - **Snake draft**: If picking late in a round, you get back-to-back picks at the turn
 - **Keepers**: 3 keepers per team at a discounted round — factor in that top players may be kept

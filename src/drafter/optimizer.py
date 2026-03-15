@@ -204,7 +204,7 @@ class Optimizer:
 
                 for name, contrib in contribs:
                     z = (contrib - mean_c) / std
-                    player_z[name] = player_z.get(name, 0) + z
+                    player_z[name] = player_z.get(name, 0) + z * self.config.weight(cat)
             else:
                 # Counting stats: standard z-score
                 vals = [v for _, v, _ in values]
@@ -216,7 +216,7 @@ class Optimizer:
                     z = (val - mean) / std
                     if inverse:
                         z = -z
-                    player_z[name] = player_z.get(name, 0) + z
+                    player_z[name] = player_z.get(name, 0) + z * self.config.weight(cat)
 
         return player_z
 
@@ -451,6 +451,11 @@ class Optimizer:
             else:
                 needs[cat] = max(0, 1.2 - ratio) * 2
 
+        # Suppress needs for punted categories
+        for cat in categories:
+            if self.config.weight(cat) < 0.5:
+                needs[cat] = 0
+
         return needs
 
     def _player_need_bonus(
@@ -595,9 +600,21 @@ class Optimizer:
         """Analyze projected category totals for a roster."""
         totals: dict[str, float] = {}
         for cat in self.config.hitting_categories:
-            totals[cat] = round(
-                sum(p.hitting_projections.get(cat, 0) for p in roster if p.is_hitter), 2
-            )
+            if cat == "AVG":
+                total_ab = sum(
+                    p.hitting_projections.get("AB", 0) for p in roster if p.is_hitter
+                )
+                if total_ab > 0:
+                    total_h = sum(
+                        p.hitting_projections.get("H", 0) for p in roster if p.is_hitter
+                    )
+                    totals[cat] = round(total_h / total_ab, 3)
+                else:
+                    totals[cat] = 0
+            else:
+                totals[cat] = round(
+                    sum(p.hitting_projections.get(cat, 0) for p in roster if p.is_hitter), 2
+                )
         for cat in self.config.pitching_categories:
             if cat in self.config.inverse_categories:
                 total_ip = sum(
@@ -623,3 +640,65 @@ class Optimizer:
                     sum(p.pitching_projections.get(cat, 0) for p in roster if p.is_pitcher), 2
                 )
         return totals
+
+    def category_dashboard(self, roster: list[Player]) -> dict:
+        """Category projections with strength/weakness grades for strategy decisions.
+
+        Returns projections, per-category grades, and a strategy hint.
+        """
+        projections = self.analyze_roster(roster)
+
+        # League-winning benchmarks (12-team H2H, full-season)
+        strong = {
+            "HR": 250, "R": 850, "RBI": 830, "SB": 130, "AVG": 0.270,
+            "QS": 115, "SV": 70, "K": 1300, "ERA": 3.50, "WHIP": 1.15,
+        }
+        weak = {
+            "HR": 175, "R": 600, "RBI": 580, "SB": 90, "AVG": 0.255,
+            "QS": 80, "SV": 30, "K": 900, "ERA": 4.20, "WHIP": 1.30,
+        }
+
+        grades = {}
+        for cat in self.config.all_categories:
+            val = projections.get(cat, 0)
+            s, w = strong.get(cat, 0), weak.get(cat, 0)
+            inverse = cat in self.config.inverse_categories
+
+            if inverse:
+                if val == 0:
+                    grades[cat] = "-"
+                elif val <= s:
+                    grades[cat] = "strong"
+                elif val >= w:
+                    grades[cat] = "weak"
+                else:
+                    grades[cat] = "average"
+            else:
+                if val == 0:
+                    grades[cat] = "-"
+                elif val >= s:
+                    grades[cat] = "strong"
+                elif val <= w:
+                    grades[cat] = "weak"
+                else:
+                    grades[cat] = "average"
+
+        # Strategy hint
+        strong_cats = [c for c, g in grades.items() if g == "strong"]
+        weak_cats = [c for c, g in grades.items() if g == "weak"]
+
+        hint = ""
+        if len(strong_cats) >= 3:
+            hint = f"Strong in {', '.join(strong_cats)}."
+            if weak_cats:
+                puntable = [c for c in weak_cats if c in ("SB", "SV", "AVG")]
+                if puntable:
+                    hint += f" Consider punting {'/'.join(puntable)}."
+        elif weak_cats:
+            hint = f"Gaps in {', '.join(weak_cats)} — address or commit to punting."
+
+        return {
+            "projections": projections,
+            "grades": grades,
+            "strategy_hint": hint,
+        }
