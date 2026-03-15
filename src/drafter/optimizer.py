@@ -229,6 +229,10 @@ class Optimizer:
         else:
             positions = {"C", "1B", "2B", "SS", "3B", "LF", "CF", "RF", "SP", "RP"}
 
+        # Limit tier analysis to draft-relevant depth per position
+        # (roster_slot * num_teams * 3 gives ~3x the draftable range)
+        roster = self.config.roster_slots
+
         # Group players by position (a player can appear in multiple groups)
         pos_players: dict[str, list[tuple[str, float]]] = {}
         for pos in positions:
@@ -242,7 +246,10 @@ class Optimizer:
                     players_at_pos.append((p.name, z_scores[p.name]))
             if players_at_pos:
                 players_at_pos.sort(key=lambda x: x[1], reverse=True)
-                pos_players[pos] = players_at_pos
+                # Cap to draft-relevant depth (starters + bench buffer)
+                slots = roster.get(pos, 1)
+                cap = max((slots + 3) * self.config.num_teams, 60)
+                pos_players[pos] = players_at_pos[:cap]
 
         # Assign tiers using natural gap detection
         result: dict[str, list[TierInfo]] = {}
@@ -264,15 +271,13 @@ class Optimizer:
         return result
 
     def _find_natural_tiers(
-        self, players: list[tuple[str, float]], max_tiers: int = 8
+        self, players: list[tuple[str, float]], max_tiers: int = 15
     ) -> list[tuple[str, int, int]]:
         """Find natural tier breaks in a sorted list of (name, z_score) tuples.
 
-        Uses gap detection: a tier break occurs when the z-score drop between
-        consecutive players exceeds a threshold. The threshold adapts to the
-        data spread — it's the median gap * a multiplier, so positions with
-        tight clustering get finer tiers and positions with big drop-offs
-        get clear breaks.
+        Uses top-N gap detection: tier breaks are placed at the largest
+        z-score drops between consecutive players. This guarantees up to
+        max_tiers tiers, with breaks at the most significant natural gaps.
 
         Returns list of (name, tier_number, players_in_tier).
         """
@@ -285,22 +290,21 @@ class Optimizer:
         gaps = []
         for i in range(len(players) - 1):
             gap = players[i][1] - players[i + 1][1]
-            gaps.append(gap)
+            gaps.append((i, gap))
 
-        # Threshold: gaps significantly larger than typical are tier breaks
-        # Use median gap * 1.5 as the break threshold (robust to outliers)
-        sorted_gaps = sorted(gaps)
-        median_gap = sorted_gaps[len(sorted_gaps) // 2]
-        # Minimum threshold to avoid too many tiers from tiny fluctuations
-        threshold = max(median_gap * 1.5, 0.3)
+        # Find the top (max_tiers - 1) largest gaps as tier break points
+        n_breaks = min(max_tiers - 1, len(gaps))
+        sorted_by_size = sorted(gaps, key=lambda x: x[1], reverse=True)
+        break_indices = sorted(idx for idx, _ in sorted_by_size[:n_breaks])
 
         # Assign tiers
         tier_num = 1
         assignments: list[tuple[str, int]] = [(players[0][0], 1)]
 
-        for i, gap in enumerate(gaps):
-            if gap >= threshold and tier_num < max_tiers:
+        for i in range(len(players) - 1):
+            if break_indices and i == break_indices[0]:
                 tier_num += 1
+                break_indices.pop(0)
             assignments.append((players[i + 1][0], tier_num))
 
         # Count players per tier and build result
