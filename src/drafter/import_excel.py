@@ -91,7 +91,16 @@ def import_players(excel_path: str, output_path: str) -> None:
         if adp == 999:
             adp = safe_float(row[11].value, 999)
 
-        players[name] = {
+        # Experience: try common columns (G=6, H=7) for "Exp" / years of service
+        experience = None
+        for exp_col in (6, 7):
+            if exp_col < len(row) and row[exp_col].value is not None:
+                val = safe_float(row[exp_col].value, -1)
+                if val >= 0 and val < 30:  # sanity check: 0-29 years
+                    experience = int(val)
+                    break
+
+        entry = {
             "name": name,
             "player_id": str(player_id),
             "team": team,
@@ -102,6 +111,9 @@ def import_players(excel_path: str, output_path: str) -> None:
             "hitting_projections": {},
             "pitching_projections": {},
         }
+        if experience is not None:
+            entry["experience"] = experience
+        players[name] = entry
 
     print(f"  Found {len(players)} players in Core-Data")
 

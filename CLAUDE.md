@@ -204,11 +204,16 @@ The sheet must be shared as "Anyone with the link can view" for the CSV export t
 
 ## Pre-Draft Player Tags
 
-`data/tags.json` stores editorial tags for rookies, breakout candidates, and sleepers.
+`data/tags.json` stores editorial tags for breakout candidates and sleepers.
 These come from web research of current expert consensus — **never guess names**.
 
-To refresh before a draft:
-1. Search for "2026 fantasy baseball rookies", "breakout candidates", "sleepers"
+**Rookies** are auto-detected from the `experience` field in player data (experience == 0).
+When `experience` is not available (not in the Excel source), the manual list in
+`tags.json` serves as a fallback. Re-importing from Mr. Cheatsheet with the experience
+column populated will auto-tag all rookies without manual curation.
+
+To refresh breakout/sleeper tags before a draft:
+1. Search for "2026 fantasy baseball breakout candidates", "sleepers"
 2. Cross-reference names against `data/players.json` (fuzzy matching handles accents)
 3. Update `data/tags.json` with verified names
 

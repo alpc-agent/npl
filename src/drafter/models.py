@@ -17,6 +17,7 @@ class Player:
     hitting_projections: dict[str, float] = field(default_factory=dict)
     pitching_projections: dict[str, float] = field(default_factory=dict)
     adp: float = 999.0
+    experience: int | None = None  # MLB years of service; 0 = rookie-eligible
     tags: list[str] = field(default_factory=list)
 
     @property

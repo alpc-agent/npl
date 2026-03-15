@@ -47,11 +47,23 @@ class Draft:
                 hitting_projections=p.get("hitting_projections", {}),
                 pitching_projections=p.get("pitching_projections", {}),
                 adp=p.get("adp", 999),
+                experience=p.get("experience"),
             )
             self.players[p["name"]] = player
 
     def _load_tags(self, path: str) -> None:
-        """Load player tags from tags.json and attach to Player objects."""
+        """Load player tags from tags.json and attach to Player objects.
+
+        Rookies are auto-detected from the experience field (experience == 0)
+        when available in the player data. The manual list in tags.json serves
+        as a fallback for data sources that lack experience info.
+        """
+        # Auto-tag rookies from experience field
+        for player in self.players.values():
+            if player.experience is not None and player.experience == 0:
+                if "rookie" not in player.tags:
+                    player.tags.append("rookie")
+
         tags_path = Path(path)
         if not tags_path.exists():
             return
