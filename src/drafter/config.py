@@ -1,5 +1,7 @@
 """League configuration."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 
@@ -55,7 +57,7 @@ class LeagueConfig:
         return self.category_weights.get(cat, 1.0)
 
     @classmethod
-    def with_strategy(cls, strategy: str, **kwargs) -> "LeagueConfig":
+    def with_strategy(cls, strategy: str, **kwargs) -> LeagueConfig:
         """Create a config with preset category weights.
 
         Strategies: balanced, punt_sb, punt_sv, punt_avg

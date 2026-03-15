@@ -291,5 +291,56 @@ class Draft:
             "already_drafted": already_drafted,
         }
 
+    def threat_window(self, pool: str | None = None) -> list[dict]:
+        """Get picks before my next turn with team roster context.
+
+        Returns list of dicts: {pick_number, team_name, positions_filled}
+        where positions_filled is a set of positions that team has already drafted.
+        """
+        picks_before = self.state.picks_before_mine()
+        if not picks_before:
+            return []
+
+        # Pre-build per-team positions_filled in one pass over all picks
+        teams_in_window = {team for _, team in picks_before}
+        team_filled: dict[str, set[str]] = {team: set() for team in teams_in_window}
+
+        for dp in self.state.picks:
+            if dp.team_name not in teams_in_window:
+                continue
+            if dp.player_name in self.players:
+                p = self.players[dp.player_name]
+                # Only count single-position players as definitively filling a slot.
+                # Multi-position players are ambiguous — the team might slot them elsewhere.
+                if len(p.positions) == 1:
+                    team_filled[dp.team_name].add(p.positions[0])
+                elif pool == "hitter":
+                    hitter_pos = [pos for pos in p.positions if pos not in ("SP", "RP")]
+                    if len(hitter_pos) == 1:
+                        team_filled[dp.team_name].add(hitter_pos[0])
+
+        return [
+            {
+                "pick_number": pick_num,
+                "team_name": team_name,
+                "positions_filled": team_filled[team_name],
+            }
+            for pick_num, team_name in picks_before
+        ]
+
+    def position_runs(self, lookback: int = 6) -> dict[str, int]:
+        """Detect position runs in recent picks.
+
+        Returns positions where 2+ players were drafted in the last `lookback` picks.
+        """
+        recent = self.state.picks[-lookback:] if len(self.state.picks) >= lookback else self.state.picks
+        pos_counts: dict[str, int] = {}
+        for dp in recent:
+            if dp.player_name in self.players:
+                for pos in self.players[dp.player_name].positions:
+                    if pos not in ("OF", "DH"):  # Skip umbrella/generic positions
+                        pos_counts[pos] = pos_counts.get(pos, 0) + 1
+        return {pos: count for pos, count in pos_counts.items() if count >= 2}
+
     def _save(self) -> None:
         self.state.save(self.state_path)

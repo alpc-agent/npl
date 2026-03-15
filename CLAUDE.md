@@ -94,6 +94,45 @@ for i, r in enumerate(recs, 1):
     print(f"   {r.reasoning}")
 ```
 
+### 3b. Pick Safety — Should I Wait or Reach?
+Pick safety analyzes every pick between now and your next turn. It checks which
+teams are picking, what positions they've already filled, and how many viable
+tier players remain — then flags positions as `[SAFE]`, `[MONITOR]`, or `[REACH]`.
+
+Use this when deciding whether to draft a position now or wait a round.
+
+```python
+# Get pick safety for hitter positions:
+available = d.available(pool="hitter")
+my_roster = d.my_roster_players()
+threat = d.threat_window(pool="hitter")
+safety = opt.pick_safety(available, my_roster, threat, pool="hitter")
+
+for s in safety:
+    print(f"  {s.position}: [{s.signal.upper()}] ({s.prob_available:.0%}) — {s.detail}")
+
+# Annotate recommendations with safety flags:
+recs = opt.recommend(available, my_roster, n=10, pool="hitter")
+opt.annotate_safety(recs, safety)
+
+# Safety flags appear in tags as [SAFE] or [REACH]
+# and in r.safety_flags for detailed per-position info
+
+# Check for position runs (2+ same position in last 6 picks):
+runs = d.position_runs()
+for pos, count in runs.items():
+    print(f"  {pos}: {count} drafted recently — RUN IN PROGRESS")
+```
+
+**How it works:**
+- The threat window covers ALL picks between now and your next turn (snake-aware)
+- For each unfilled position, it counts how many teams ahead still need that position
+- Each team's pick rate is based on how many total positions they still need to fill
+  (a team with 2 unfilled positions is much more likely to pick at yours than one with 8)
+- Probability uses binomial DP to compute P(at least one viable tier player survives)
+- Signals: `[SAFE]` (>70%), `[MONITOR]` (35-70%), `[REACH]` (<35%)
+- Position run detection flags when 2+ players at the same position drafted in recent picks
+
 ### 4. Manual Pick Entry
 If the sheet is behind or you need to enter a pick manually:
 ```python
@@ -163,7 +202,7 @@ The `value` tag is computed at runtime (ADP rank 15+ spots worse than AI rank).
 - `draft_state.json` — Live draft state (auto-saved, .gitignored)
 - `src/drafter/sheets.py` — Google Sheets reader (CSV export, no auth needed)
 - `src/drafter/draft.py` — Draft engine (pick logging, sheet sync, state management)
-- `src/drafter/optimizer.py` — Ranking engine (z-scores, scarcity, needs)
+- `src/drafter/optimizer.py` — Ranking engine (z-scores, scarcity, needs, tiers, pick safety, category dashboard)
 - `src/drafter/config.py` — League settings (categories, roster slots)
 - `src/drafter/models.py` — Data models
 - `src/drafter/import_excel.py` — Excel import (run once to seed data)

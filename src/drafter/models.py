@@ -88,6 +88,19 @@ class DraftState:
     def team_picks(self, team_name: str) -> list[DraftPick]:
         return [p for p in self.picks if p.team_name == team_name]
 
+    def picks_before_mine(self) -> list[tuple[int, str]]:
+        """Return (pick_number, team_name) for every pick between now and my next pick.
+
+        Excludes my own pick. Returns empty list if it's currently my pick.
+        """
+        result = []
+        for i in range(self.current_pick, self.current_pick + 2 * self.num_teams):
+            team = self.picking_team(i)
+            if team == self.my_team:
+                break
+            result.append((i, team))
+        return result
+
     def save(self, path: Path) -> None:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(asdict(self), f, indent=2)

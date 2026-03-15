@@ -22,6 +22,18 @@ class TierInfo:
 
 
 @dataclass
+class PickSafety:
+    """Pick safety analysis for a position."""
+    position: str
+    viable_in_tier: int       # Players remaining in the current target tier
+    picks_before_turn: int    # Total picks before user's next turn
+    teams_needing: int        # Teams picking before user that haven't filled this position
+    prob_available: float     # Probability at least one tier player survives to user's pick
+    signal: str               # "safe", "monitor", or "reach"
+    detail: str               # Human-readable explanation
+
+
+@dataclass
 class Recommendation:
     player: Player
     total_score: float
@@ -33,6 +45,7 @@ class Recommendation:
     tiers: list[TierInfo] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     rank_insight: str = ""  # Why AI rank differs from cheatsheet rank
+    safety_flags: list[PickSafety] = field(default_factory=list)  # Position safety signals
 
     @property
     def best_tier(self) -> TierInfo | None:
@@ -117,6 +130,43 @@ class Optimizer:
             r.rank_insight = self._rank_insight(r, ai_rank=i)
 
         return recs
+
+    def annotate_safety(
+        self,
+        recs: list[Recommendation],
+        safety: list[PickSafety],
+    ) -> None:
+        """Attach pick safety flags to recommendations.
+
+        For each recommendation, find safety signals matching the player's positions
+        and attach them. Also adds 'safe' or 'reach' to tags when relevant.
+        """
+        safety_by_pos = {s.position: s for s in safety}
+
+        for r in recs:
+            seen = set()
+            matched = []
+            for pos in r.player.positions:
+                if pos in safety_by_pos and pos not in seen:
+                    matched.append(safety_by_pos[pos])
+                    seen.add(pos)
+                # Check OF umbrella positions
+                if pos == "OF":
+                    for sub in ("LF", "CF", "RF"):
+                        if sub in safety_by_pos and sub not in seen:
+                            matched.append(safety_by_pos[sub])
+                            seen.add(sub)
+
+            r.safety_flags = matched
+
+            # Add safety tag based on the most urgent signal for this player's positions
+            if matched:
+                most_urgent = min(matched, key=lambda s: s.prob_available)
+                if most_urgent.signal == "reach" and "reach" not in r.tags:
+                    r.tags.append("reach")
+                elif most_urgent.signal == "safe" and most_urgent.teams_needing == 0:
+                    if "safe" not in r.tags:
+                        r.tags.append("safe")
 
     def _compute_z_scores(
         self, players: list[Player], pool: str | None = None
@@ -702,3 +752,194 @@ class Optimizer:
             "grades": grades,
             "strategy_hint": hint,
         }
+
+    @staticmethod
+    def _prob_at_least_one_survives(
+        viable_count: int, team_pick_rates: list[float]
+    ) -> float:
+        """Probability that at least one viable player survives all threat picks.
+
+        Models each needing team as independently deciding to draft this position
+        with their individual pick_rate. Uses dynamic programming to compute the
+        probability distribution of total players taken.
+
+        Args:
+            viable_count: Number of viable players at this position
+            team_pick_rates: Per-team probability of drafting this position
+        """
+        if not team_pick_rates:
+            return 1.0
+
+        # DP: prob[k] = probability that exactly k teams draft this position
+        # Start with 0 teams having drafted
+        prob = [0.0] * (len(team_pick_rates) + 1)
+        prob[0] = 1.0
+
+        for p_draft in team_pick_rates:
+            new_prob = [0.0] * len(prob)
+            for k in range(len(prob)):
+                if prob[k] == 0:
+                    continue
+                # This team doesn't draft this position
+                new_prob[k] += prob[k] * (1 - p_draft)
+                # This team drafts this position
+                if k + 1 < len(prob):
+                    new_prob[k + 1] += prob[k] * p_draft
+            prob = new_prob
+
+        # P(at least one survives) = P(taken < viable_count)
+        return sum(prob[k] for k in range(min(viable_count, len(prob))))
+
+    def pick_safety(
+        self,
+        available: list[Player],
+        my_roster: list[Player],
+        threat_window: list[dict],
+        pool: str | None = None,
+        z_scores: dict[str, float] | None = None,
+        tier_map: dict[str, list[TierInfo]] | None = None,
+    ) -> list[PickSafety]:
+        """Compute pick safety for each position.
+
+        Uses projected availability (ADP-based probability) combined with
+        opponent roster context from the threat window.
+
+        Args:
+            available: Available players (already filtered for pool)
+            my_roster: Current roster players
+            threat_window: From Draft.threat_window() — picks before user's next turn
+                           with team positions_filled data
+            pool: "hitter" or "pitcher"
+            z_scores: Precomputed z-scores (optional, avoids recomputation if
+                      recommend() was already called on the same available list)
+            tier_map: Precomputed tier map (optional, same purpose)
+
+        Returns list of PickSafety for relevant unfilled positions, sorted by urgency.
+        """
+        if pool == "hitter":
+            positions = ["C", "1B", "2B", "SS", "3B", "LF", "CF", "RF"]
+        elif pool == "pitcher":
+            positions = ["SP", "RP"]
+        else:
+            positions = ["C", "1B", "2B", "SS", "3B", "LF", "CF", "RF", "SP", "RP"]
+
+        # What positions has the user already filled?
+        my_filled = set()
+        for p in my_roster:
+            if len(p.positions) == 1:
+                my_filled.add(p.positions[0])
+            elif pool == "hitter":
+                hitter_pos = [pos for pos in p.positions if pos not in ("SP", "RP")]
+                if len(hitter_pos) == 1:
+                    my_filled.add(hitter_pos[0])
+
+        # Filter to positions user still needs
+        # For IF/OF flex slots, don't mark sub-positions as filled unless we have
+        # more players at that position than roster slots
+        positions_to_check = [pos for pos in positions if pos not in my_filled]
+        if not positions_to_check:
+            return []
+
+        picks_before = len(threat_window)
+        if picks_before == 0:
+            return []
+
+        # Use precomputed z-scores/tiers if provided (avoids duplicate work
+        # when recommend() was already called on the same available list)
+        if z_scores is None:
+            z_scores = self._compute_z_scores(available, pool=pool)
+        if tier_map is None:
+            tier_map = self._compute_tiers(available, z_scores, pool=pool)
+
+        all_positions = set(positions)
+
+        results = []
+        for pos in positions_to_check:
+            # Find viable players at this position (in top 2 tiers)
+            pos_players = []
+            for p in available:
+                if p.name not in z_scores:
+                    continue
+                eligible = pos in p.positions
+                if not eligible and pos in ("LF", "CF", "RF") and "OF" in p.positions:
+                    eligible = True
+                if eligible:
+                    player_tiers = tier_map.get(p.name, [])
+                    pos_tier = next((t for t in player_tiers if t.position == pos), None)
+                    tier_num = pos_tier.tier if pos_tier else 99
+                    pos_players.append((p, tier_num))
+
+            if not pos_players:
+                continue
+
+            # "Viable" = in top 2 tiers at this position
+            viable = [p for p, t in pos_players if t <= 2]
+            if not viable:
+                # If no tier 1-2 players, use tier 3
+                viable = [p for p, t in pos_players if t <= 3]
+            if not viable:
+                continue
+
+            viable_count = len(viable)
+
+            # Count teams picking before us that haven't filled this position,
+            # and estimate each team's probability of drafting this position
+            # based on how many unfilled positions they have.
+            teams_needing = 0
+            team_pick_rates = []
+            for tw in threat_window:
+                if pos not in tw["positions_filled"]:
+                    teams_needing += 1
+                    # More unfilled positions = lower chance of picking THIS one
+                    unfilled = len(all_positions) - len(tw["positions_filled"])
+                    pick_rate = 1.0 / max(unfilled, 1)
+                    team_pick_rates.append(pick_rate)
+
+            # Probability at least one viable player survives.
+            # Model: each needing team independently drafts this position with
+            # their pick_rate. We want P(total_taken < viable_count).
+            # Use sequential simulation: probability of survival through each team.
+            if teams_needing == 0:
+                prob_available = 1.0
+            else:
+                # P(at least one survives) = 1 - P(all viable get taken)
+                # Compute P(k teams draft this position) and check if k < viable_count
+                # Using binomial-like chain with varying per-team probabilities
+                prob_available = self._prob_at_least_one_survives(
+                    viable_count, team_pick_rates
+                )
+
+            # Determine signal
+            if prob_available >= 0.70:
+                signal = "safe"
+            elif prob_available >= 0.35:
+                signal = "monitor"
+            else:
+                signal = "reach"
+
+            # Build detail string
+            detail = (
+                f"{viable_count} viable in tier, "
+                f"{picks_before} picks before turn, "
+                f"{teams_needing} teams still need {pos}"
+            )
+            if signal == "safe" and teams_needing == 0:
+                detail += f" — no one ahead needs {pos}, safe to wait"
+            elif signal == "reach":
+                detail += f" — tier depleting fast, consider drafting now"
+
+            results.append(PickSafety(
+                position=pos,
+                viable_in_tier=viable_count,
+                picks_before_turn=picks_before,
+                teams_needing=teams_needing,
+                prob_available=round(prob_available, 2),
+                signal=signal,
+                detail=detail,
+            ))
+
+        # Sort by urgency: reach first, then monitor, then safe
+        signal_order = {"reach": 0, "monitor": 1, "safe": 2}
+        results.sort(key=lambda r: (signal_order[r.signal], r.prob_available))
+
+        return results
