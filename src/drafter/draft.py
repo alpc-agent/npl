@@ -158,14 +158,10 @@ class Draft:
 
         if position:
             pos = position.upper()
-            if pos == "CI":
-                avail = [p for p in avail if {"1B", "3B"} & set(p.positions)]
-            elif pos == "MI":
-                avail = [p for p in avail if {"2B", "SS"} & set(p.positions)]
-            elif pos == "P":
-                avail = [p for p in avail if {"SP", "RP"} & set(p.positions)]
-            elif pos == "BENCH":
-                pass  # Any player
+            if pos == "IF":
+                avail = [p for p in avail if {"C", "1B", "2B", "SS", "3B"} & set(p.positions)]
+            elif pos == "OF":
+                avail = [p for p in avail if {"LF", "CF", "RF", "OF"} & set(p.positions)]
             else:
                 avail = [p for p in avail if pos in p.positions]
 

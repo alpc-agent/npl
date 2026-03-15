@@ -26,16 +26,16 @@ class LeagueConfig:
             "C": 1,
             "1B": 1,
             "2B": 1,
-            "3B": 1,
             "SS": 1,
-            "OF": 5,
+            "3B": 1,
+            "IF": 1,   # Any infielder (C/1B/2B/SS/3B)
+            "LF": 1,
+            "CF": 1,
+            "RF": 1,
+            "OF": 1,   # Any outfielder (LF/CF/RF)
             "DH": 1,
-            "CI": 1,   # 1B/3B
-            "MI": 1,   # 2B/SS
             "SP": 5,
             "RP": 2,
-            "P": 1,    # SP/RP
-            "Bench": 8,
         }
     )
 

@@ -142,8 +142,8 @@ class Optimizer:
         pos_counts: dict[str, int] = {}
         roster = self.config.roster_slots
 
-        hitting_positions = {"C", "1B", "2B", "3B", "SS", "OF", "DH", "CI", "MI"}
-        pitching_positions = {"SP", "RP", "P"}
+        hitting_positions = {"C", "1B", "2B", "SS", "3B", "IF", "LF", "CF", "RF", "OF", "DH"}
+        pitching_positions = {"SP", "RP"}
 
         for p in available:
             for pos in p.positions:
@@ -160,12 +160,10 @@ class Optimizer:
             if pool == "pitcher" and pos not in pitching_positions:
                 continue
             count = pos_counts.get(pos, 0)
-            if pos == "CI":
-                count = pos_counts.get("1B", 0) + pos_counts.get("3B", 0)
-            elif pos == "MI":
-                count = pos_counts.get("2B", 0) + pos_counts.get("SS", 0)
-            elif pos == "P":
-                count = pos_counts.get("SP", 0) + pos_counts.get("RP", 0)
+            if pos == "IF":
+                count = sum(pos_counts.get(p, 0) for p in ("C", "1B", "2B", "SS", "3B"))
+            elif pos == "OF":
+                count = sum(pos_counts.get(p, 0) for p in ("LF", "CF", "RF", "OF"))
 
             # Ratio of available players per needed slot (across all teams)
             needed_league = slots * self.config.num_teams

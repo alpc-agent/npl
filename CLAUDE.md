@@ -105,8 +105,8 @@ for cat, val in totals.items():
 ```python
 for p in d.available(position="SS", pool="hitter", limit=10):
     print(f"  {p.adp:>5.0f}  {p.name:<25} {p.team}")
-# Hitter positions: C, 1B, 2B, 3B, SS, OF, DH, CI, MI
-# Pitcher positions: SP, RP, P
+# Hitter positions: C, 1B, 2B, SS, 3B, IF, LF, CF, RF, OF, DH
+# Pitcher positions: SP, RP
 ```
 
 ### 7. Draft Status
@@ -137,8 +137,10 @@ The sheet must be shared as "Anyone with the link can view" for the CSV export t
 - `src/drafter/models.py` — Data models
 - `src/drafter/import_excel.py` — Excel import (run once to seed data)
 
-## Roster Slots
-C(1), 1B(1), 2B(1), 3B(1), SS(1), OF(5), DH(1), CI(1), MI(1), SP(5), RP(2), P(1), Bench(8)
+## Roster Slots (ESPN format)
+Hitters: C, 1B, 2B, SS, 3B, IF(1 — any infielder), LF, CF, RF, OF(1 — any outfielder), DH
+Pitchers: SP(5), RP(2)
+Bench: Unlimited
 
 ## Draft Strategy Notes
 - **QS over W**: Prioritize pitchers with high QS projections (innings eaters, low ERA SPs) over win-dependent arms
