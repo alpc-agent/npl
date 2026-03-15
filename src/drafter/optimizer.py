@@ -47,7 +47,6 @@ class Optimizer:
         self,
         available: list[Player],
         my_roster: list[Player],
-        all_players: list[Player],
         n: int = 10,
         pool: str | None = None,
     ) -> list[Recommendation]:
@@ -297,7 +296,6 @@ class Optimizer:
 
         # Assign tiers
         tier_num = 1
-        tier_start = 0
         assignments: list[tuple[str, int]] = [(players[0][0], 1)]
 
         for i, gap in enumerate(gaps):

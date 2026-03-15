@@ -19,7 +19,7 @@ class SheetPick:
 def fetch_sheet_csv(sheet_id: str, gid: str) -> list[list[str]]:
     """Fetch a Google Sheet tab as CSV rows."""
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-    resp = urllib.request.urlopen(url)
+    resp = urllib.request.urlopen(url, timeout=30)
     data = resp.read().decode("utf-8")
     reader = csv.reader(io.StringIO(data))
     return list(reader)

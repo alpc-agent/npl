@@ -75,11 +75,11 @@ Each recommendation shows both perspectives:
 # For a hitter pick:
 available = d.available(pool="hitter")
 my_roster = d.my_roster_players()
-recs = opt.recommend(available, my_roster, list(d.players.values()), n=10, pool="hitter")
+recs = opt.recommend(available, my_roster, n=10, pool="hitter")
 
 # For a pitcher pick:
 available = d.available(pool="pitcher")
-recs = opt.recommend(available, my_roster, list(d.players.values()), n=10, pool="pitcher")
+recs = opt.recommend(available, my_roster, n=10, pool="pitcher")
 
 for i, r in enumerate(recs, 1):
     pos = '/'.join(r.player.positions)

@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 class LeagueConfig:
     num_teams: int = 12
     draft_type: str = "snake"
-    my_draft_position: int | None = None
 
     hitting_categories: list[str] = field(
         default_factory=lambda: ["AVG", "HR", "R", "RBI", "SB"]

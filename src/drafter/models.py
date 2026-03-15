@@ -87,12 +87,12 @@ class DraftState:
         return [p for p in self.picks if p.team_name == team_name]
 
     def save(self, path: Path) -> None:
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(asdict(self), f, indent=2)
 
     @classmethod
     def load(cls, path: Path) -> DraftState:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         state = cls(
             num_teams=data["num_teams"],

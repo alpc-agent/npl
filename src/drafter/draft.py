@@ -33,7 +33,7 @@ class Draft:
             )
 
     def _load_players(self, path: str) -> None:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         for p in data:
             player = Player(
@@ -232,6 +232,7 @@ class Draft:
         unmatched = []
         already_drafted = 0
 
+        drafted_ids = self.state.drafted_player_ids()
         for sp in sheet_picks:
             try:
                 player = self._resolve_player(sp.player_name)
@@ -240,7 +241,7 @@ class Draft:
                     already_drafted += 1
                     continue
 
-                if player.player_id in self.state.drafted_player_ids():
+                if player.player_id in drafted_ids:
                     applied.append(f"  SKIP: {player.name} already drafted")
                     continue
 
@@ -252,6 +253,7 @@ class Draft:
                     team_name=sp.owner,
                 )
                 self.state.picks.append(dp)
+                drafted_ids.add(player.player_id)
                 is_mine = sp.owner == self.state.my_team
                 marker = " ⭐" if is_mine else ""
                 applied.append(
