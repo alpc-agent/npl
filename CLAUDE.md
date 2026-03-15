@@ -64,6 +64,13 @@ they're drafted players occupying a roster spot and draft pick.
 
 ### 3. Get Recommendations When It's My Turn
 **Always specify pool="hitter" or pool="pitcher"** since they are drafted separately.
+
+Each recommendation shows both perspectives:
+- **Cheatsheet Rank (`adp_rank`)**: Mr. Cheatsheet's objective consensus ranking among available players
+- **AI Score (`total_score`)**: Our optimizer's score factoring in z-scores (rate-stat weighted),
+  positional scarcity, category needs, and tier depletion urgency
+- **Tier info**: Position-based tier (e.g., "Tier 1 SS (3 left)") with REACH warnings when
+  a tier is nearly depleted
 ```python
 # For a hitter pick:
 available = d.available(pool="hitter")
@@ -76,7 +83,9 @@ recs = opt.recommend(available, my_roster, list(d.players.values()), n=10, pool=
 
 for i, r in enumerate(recs, 1):
     pos = '/'.join(r.player.positions)
-    print(f"{i}. {r.player.name} ({pos}, {r.player.team}) — Score: {r.total_score}")
+    tier = r.best_tier.tier_label if r.best_tier else '-'
+    print(f"{i}. {r.player.name} ({pos}) — AI Score: {r.total_score} | Cheatsheet Rank: #{r.adp_rank}")
+    print(f"   Tier: {tier}")
     print(f"   Value: {r.z_score_value} | Scarcity: {r.scarcity_bonus} | Need: {r.need_bonus}")
     print(f"   {r.reasoning}")
 ```
