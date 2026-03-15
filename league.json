@@ -1,11 +1,11 @@
 {
-  "sheet_id": null,
+  "sheet_id": "1bhs-QzmunMDLWxT3GvRvLg4l1M_8bgheiu2FC43D74E",
   "hitter_selections_gid": null,
   "pitcher_selections_gid": null,
   "my_team": "Andrew",
-  "draft_position": null,
+  "draft_position": 11,
   "owners": [
-    "Sam", "Andrew", "Jacob", "Connor", "Matt", "Vik",
-    "Muppy", "Luke", "Ethan", "Jack", "Hayden", "Daniel"
+    "Daniel", "Hayden", "Jack", "Ethan", "Luke", "Muppy",
+    "Vik", "Matt", "Connor", "Jacob", "Andrew", "Sam"
   ]
 }
