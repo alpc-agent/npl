@@ -943,3 +943,107 @@ class Optimizer:
         results.sort(key=lambda r: (signal_order[r.signal], r.prob_available))
 
         return results
+
+    def league_relative_dashboard(
+        self, my_roster: list[Player],
+        history_path: str = "data/league_history.json",
+    ) -> dict:
+        """Category projections ranked against last season's actual league stats.
+
+        For counting stats (HR, R, RBI, SB, K, QS, SV), scales the current
+        roster's per-player average to a full roster projection so that a
+        3-player roster mid-draft gives a meaningful comparison.
+
+        Rate stats (AVG, ERA, WHIP) are used as-is since they don't scale
+        with roster size.
+
+        Returns projected league rank (1-12) and percentage delta vs median.
+        For inverse stats (ERA, WHIP), sign is flipped so + always = good.
+        """
+        import json
+        my_proj = self.analyze_roster(my_roster)
+
+        with open(history_path, encoding="utf-8") as f:
+            history = json.load(f)
+
+        hist_teams = history["teams"]
+        rate_stats = {"AVG"} | set(self.config.inverse_categories)
+
+        # Scale counting stats to full roster projection
+        n_hitters = sum(1 for p in my_roster if p.is_hitter)
+        n_pitchers = sum(1 for p in my_roster if p.is_pitcher)
+        target_hitters = sum(
+            v for k, v in self.config.roster_slots.items()
+            if k not in ("SP", "RP")
+        )
+        target_pitchers = sum(
+            v for k, v in self.config.roster_slots.items()
+            if k in ("SP", "RP")
+        )
+
+        scaled: dict[str, float] = {}
+        for cat in self.config.all_categories:
+            val = my_proj.get(cat, 0)
+            if cat in rate_stats or val == 0:
+                scaled[cat] = val
+            elif cat in self.config.hitting_categories:
+                scale = target_hitters / n_hitters if n_hitters > 0 else 0
+                scaled[cat] = round(val * scale, 1)
+            else:
+                scale = target_pitchers / n_pitchers if n_pitchers > 0 else 0
+                scaled[cat] = round(val * scale, 1)
+
+        rankings: dict[str, int] = {}
+        deltas: dict[str, float] = {}
+
+        for cat in self.config.all_categories:
+            my_val = scaled[cat]
+            hist_vals = sorted(
+                [t[cat] for t in hist_teams],
+                reverse=(cat not in self.config.inverse_categories),
+            )
+
+            # Where would my scaled projection rank?
+            rank = 1
+            for hv in hist_vals:
+                if cat in self.config.inverse_categories:
+                    if my_val <= hv:
+                        break
+                else:
+                    if my_val >= hv:
+                        break
+                rank += 1
+            rankings[cat] = min(rank, len(hist_vals) + 1)
+
+            # Delta vs league median (average of 6th and 7th)
+            median = (hist_vals[5] + hist_vals[6]) / 2 if len(hist_vals) >= 7 else 0
+            if median != 0 and my_val != 0:
+                pct = (my_val - median) / median * 100
+                if cat in self.config.inverse_categories:
+                    pct = -pct
+                deltas[cat] = round(pct, 1)
+            else:
+                deltas[cat] = 0.0
+
+        # Generate hint from rankings
+        top3 = [cat for cat, r in rankings.items() if r <= 3]
+        bottom3 = [cat for cat, r in rankings.items() if r >= 10]
+        hint = ""
+        if top3 and bottom3:
+            puntable = [c for c in bottom3 if c in ("SB", "SV", "AVG")]
+            if puntable:
+                hint = f"Top 3 in {', '.join(top3)}. Bottom 3 in {', '.join(bottom3)} — consider punting {'/'.join(puntable)}."
+            else:
+                hint = f"Top 3 in {', '.join(top3)}. Bottom 3 in {', '.join(bottom3)} — address or accept."
+        elif bottom3:
+            hint = f"Bottom 3 in {', '.join(bottom3)} — address or commit to punting."
+        elif top3:
+            hint = f"Projected top 3 in {', '.join(top3)}."
+
+        return {
+            "my_projections": my_proj,
+            "scaled_projections": scaled,
+            "rankings": rankings,
+            "deltas": deltas,
+            "hint": hint,
+        }

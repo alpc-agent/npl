@@ -133,6 +133,18 @@ for pos, count in runs.items():
 - Signals: `[SAFE]` (>70%), `[MONITOR]` (35-70%), `[REACH]` (<35%)
 - Position run detection flags when 2+ players at the same position drafted in recent picks
 
+### 3c. Quick Board — "it's my pick"
+The `/my-pick` skill (`.claude/skills/my-pick/SKILL.md`) consolidates recommendations,
+cheatsheet consensus, pick safety, and league-relative dashboard into a single output.
+Just say "it's my hitter pick" or "pitcher pick" and it runs the full pipeline.
+
+The league-relative dashboard compares your category projections to the average of
+all 12 teams' current rosters:
+```python
+rel = opt.league_relative_dashboard(d.my_roster_players(), d)
+# Returns: my_projections, league_avg, deltas (%), hint
+```
+
 ### 4. Manual Pick Entry
 If the sheet is behind or you need to enter a pick manually:
 ```python

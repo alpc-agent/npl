@@ -1,0 +1,18 @@
+{
+  "season": 2025,
+  "note": "Actual end-of-season stats from 12-team H2H categories league",
+  "teams": [
+    {"rank": 1, "name": "I'm Sho Hoerny", "R": 862, "HR": 245, "RBI": 801, "SB": 146, "AVG": 0.2560, "K": 1356, "QS": 103, "SV": 57, "ERA": 3.357, "WHIP": 1.188},
+    {"rank": 2, "name": "At Witt's End", "R": 864, "HR": 275, "RBI": 885, "SB": 108, "AVG": 0.2605, "K": 1388, "QS": 110, "SV": 60, "ERA": 3.332, "WHIP": 1.092},
+    {"rank": 3, "name": "Oops...All Mariners", "R": 838, "HR": 231, "RBI": 760, "SB": 176, "AVG": 0.2584, "K": 979, "QS": 62, "SV": 58, "ERA": 3.865, "WHIP": 1.262},
+    {"rank": 4, "name": "It's Miller Time", "R": 881, "HR": 252, "RBI": 868, "SB": 183, "AVG": 0.2554, "K": 1261, "QS": 80, "SV": 45, "ERA": 3.497, "WHIP": 1.144},
+    {"rank": 5, "name": "Ethical Non-Imanagamy", "R": 892, "HR": 251, "RBI": 845, "SB": 167, "AVG": 0.2563, "K": 1197, "QS": 98, "SV": 73, "ERA": 3.839, "WHIP": 1.211},
+    {"rank": 6, "name": "Rams", "R": 987, "HR": 298, "RBI": 957, "SB": 161, "AVG": 0.2594, "K": 1193, "QS": 68, "SV": 57, "ERA": 3.641, "WHIP": 1.210},
+    {"rank": 7, "name": "Stevie Kwander's Greatest Hits", "R": 740, "HR": 202, "RBI": 703, "SB": 144, "AVG": 0.2475, "K": 1070, "QS": 66, "SV": 46, "ERA": 3.960, "WHIP": 1.226},
+    {"rank": 8, "name": "Seagerboxxx", "R": 844, "HR": 242, "RBI": 775, "SB": 158, "AVG": 0.2483, "K": 1265, "QS": 102, "SV": 49, "ERA": 3.868, "WHIP": 1.204},
+    {"rank": 9, "name": "Skubal Snacks", "R": 831, "HR": 202, "RBI": 770, "SB": 206, "AVG": 0.2631, "K": 1163, "QS": 82, "SV": 54, "ERA": 3.890, "WHIP": 1.168},
+    {"rank": 10, "name": "Correa Virus", "R": 775, "HR": 203, "RBI": 807, "SB": 99, "AVG": 0.2555, "K": 1045, "QS": 61, "SV": 67, "ERA": 3.818, "WHIP": 1.217},
+    {"rank": 11, "name": "Schwampionic Schwarbers", "R": 771, "HR": 236, "RBI": 733, "SB": 151, "AVG": 0.2493, "K": 876, "QS": 64, "SV": 11, "ERA": 4.357, "WHIP": 1.227},
+    {"rank": 12, "name": "Ketel One Got Ozuna Geeked", "R": 766, "HR": 223, "RBI": 768, "SB": 68, "AVG": 0.2548, "K": 965, "QS": 79, "SV": 48, "ERA": 3.360, "WHIP": 1.192}
+  ]
+}
