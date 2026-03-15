@@ -39,7 +39,7 @@ d.setup(league['my_team'], draft_position=league['draft_position'],
         team_names=league['owners'])
 ```
 
-### 2. Sync Picks from the Google Sheet (CONFIRMATION REQUIRED)
+### 2. Sync Picks from the Google Sheet
 
 When the user says "sync", "check the sheet", "what's new?", etc.:
 
@@ -47,12 +47,12 @@ When the user says "sync", "check the sheet", "what's new?", etc.:
 result = d.sync_from_sheet(reader)
 ```
 
-**Present results to the user:**
-- Show count: "Found X new picks, Y unmatched"
-- For each new matched pick, show: "[owner] [hitter/pitcher] Rd [N]: [player name]"
+**The sheet is the source of truth — picks are applied automatically.**
+- Show count: "Applied X new picks, Y unmatched"
+- `result['applied']` — list of confirmation messages for newly applied picks
+- `result['unmatched']` — list of (SheetPick, error) for names that couldn't be resolved
+- `result['already_drafted']` — count of picks already in state
 - For unmatched: show the name from the sheet and ask user to resolve manually
-- **Ask user to confirm** before applying: "Apply these X picks?"
-- Only call `d.apply_sheet_picks(result['matched'])` after confirmation
 
 **Keepers**: Players pre-filled in the sheet before the draft starts are keepers.
 They appear as regular picks in early rounds. The sync treats them the same —
@@ -124,7 +124,6 @@ The sheet must be shared as "Anyone with the link can view" for the CSV export t
 - `src/drafter/optimizer.py` — Ranking engine (z-scores, scarcity, needs)
 - `src/drafter/config.py` — League settings (categories, roster slots)
 - `src/drafter/models.py` — Data models
-- `src/drafter/imessage.py` — iMessage reader (backup, Mac-only)
 - `src/drafter/import_excel.py` — Excel import (run once to seed data)
 
 ## Roster Slots

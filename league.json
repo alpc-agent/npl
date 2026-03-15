@@ -2,7 +2,7 @@
   "sheet_id": null,
   "hitter_selections_gid": null,
   "pitcher_selections_gid": null,
-  "my_team": null,
+  "my_team": "Andrew",
   "draft_position": null,
   "owners": [
     "Sam", "Andrew", "Jacob", "Connor", "Matt", "Vik",

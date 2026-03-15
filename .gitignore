@@ -8,4 +8,3 @@ build/
 *.xlsm
 *.xlsx
 draft_state.json
-imessage_state.json

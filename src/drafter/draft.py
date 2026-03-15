@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .config import LeagueConfig
 from .models import DraftPick, DraftState, Player
-from .sheets import DraftSheetReader, SheetPick
+from .sheets import DraftSheetReader
 
 
 class Draft:
@@ -206,10 +206,12 @@ class Draft:
         return "\n".join(lines)
 
     def sync_from_sheet(self, sheet_reader: DraftSheetReader) -> dict:
-        """Fetch picks from the Google Sheet and identify new ones.
+        """Fetch picks from the Google Sheet and apply new ones directly.
+
+        The sheet is the source of truth — picks are applied automatically.
 
         Returns a dict with:
-          - matched: list of (SheetPick, Player) tuples ready to confirm
+          - applied: list of confirmation message strings for new picks
           - unmatched: list of (SheetPick, error_msg) that couldn't be resolved
           - already_drafted: count of picks already in our state
         """
@@ -220,7 +222,7 @@ class Draft:
         for dp in self.state.picks:
             known.add(f"{dp.team_name}:{dp.player_name}")
 
-        matched = []
+        applied = []
         unmatched = []
         already_drafted = 0
 
@@ -231,46 +233,37 @@ class Draft:
                 if key in known:
                     already_drafted += 1
                     continue
-                matched.append((sp, player))
+
+                if player.player_id in self.state.drafted_player_ids():
+                    applied.append(f"  SKIP: {player.name} already drafted")
+                    continue
+
+                dp = DraftPick(
+                    pick_number=len(self.state.picks) + 1,
+                    round_number=sp.round_number,
+                    player_name=player.name,
+                    player_id=player.player_id,
+                    team_name=sp.owner,
+                )
+                self.state.picks.append(dp)
+                is_mine = sp.owner == self.state.my_team
+                marker = " ⭐" if is_mine else ""
+                applied.append(
+                    f"  {sp.pick_type.upper()} Rd {sp.round_number}: "
+                    f"{sp.owner} takes {player.name} "
+                    f"({'/'.join(player.positions)}){marker}"
+                )
             except ValueError as e:
                 unmatched.append((sp, str(e)))
 
+        if applied:
+            self._save()
+
         return {
-            "matched": matched,
+            "applied": applied,
             "unmatched": unmatched,
             "already_drafted": already_drafted,
         }
-
-    def apply_sheet_picks(self, picks: list[tuple[SheetPick, Player]]) -> list[str]:
-        """Apply confirmed sheet picks to the draft state.
-
-        Each pick is logged with the owner name as team_name.
-        Returns list of confirmation messages.
-        """
-        messages = []
-        for sp, player in picks:
-            if player.player_id in self.state.drafted_player_ids():
-                messages.append(f"  SKIP: {player.name} already drafted")
-                continue
-
-            dp = DraftPick(
-                pick_number=len(self.state.picks) + 1,
-                round_number=sp.round_number,
-                player_name=player.name,
-                player_id=player.player_id,
-                team_name=sp.owner,
-            )
-            self.state.picks.append(dp)
-            is_mine = sp.owner == self.state.my_team
-            marker = " ⭐" if is_mine else ""
-            messages.append(
-                f"  {sp.pick_type.upper()} Rd {sp.round_number}: "
-                f"{sp.owner} takes {player.name} "
-                f"({'/'.join(player.positions)}){marker}"
-            )
-
-        self._save()
-        return messages
 
     def _save(self) -> None:
         self.state.save(self.state_path)
