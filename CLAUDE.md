@@ -6,10 +6,11 @@ Categories: AVG, HR, R, RBI, SB / QS, SV, K, ERA, WHIP
 
 The user interacts with this tool through Claude Code conversations during their live draft.
 
-## Draft Day Workflow (iMessage Integration)
+## Draft Day Workflow (Google Sheets Integration)
 
-The draft runs through the "NPL raft⚾️" iMessage group chat. Claude reads new messages,
-proposes who was picked, and **waits for user confirmation before logging any pick**.
+The draft is tracked via a shared Google Sheet with Hitter Selections and Pitcher Selections tabs.
+Claude fetches the sheet, matches player names to the database, and **waits for user confirmation
+before logging any picks**.
 
 ### 1. Initialize the Draft Session
 ```python
@@ -18,7 +19,7 @@ import json
 from drafter.draft import Draft
 from drafter.config import LeagueConfig
 from drafter.optimizer import Optimizer
-from drafter.imessage import DraftChatMonitor
+from drafter.sheets import DraftSheetReader
 
 d = Draft()
 config = LeagueConfig()
@@ -27,33 +28,35 @@ opt = Optimizer(config)
 with open('league.json') as f:
     league = json.load(f)
 
-monitor = DraftChatMonitor(
-    player_names=list(d.players.keys()),
-    team_map=league['team_map'],
+reader = DraftSheetReader(
+    sheet_id=league['sheet_id'],
+    hitter_gid=league['hitter_selections_gid'],
+    pitcher_gid=league['pitcher_selections_gid'],
 )
 
-# First time — set up team (update draft_position and team name in league.json first):
-d.setup(league['team_map']['me'], draft_position=league['draft_position'],
-        team_names=league['draft_order'])
+# First time only — set up your team:
+d.setup(league['my_team'], draft_position=league['draft_position'],
+        team_names=league['owners'])
 ```
 
-### 2. Check for New Picks (CONFIRMATION REQUIRED)
+### 2. Sync Picks from the Google Sheet (CONFIRMATION REQUIRED)
 
-When the user says "check the chat", "any new picks?", "what's happening?", etc.:
+When the user says "sync", "check the sheet", "what's new?", etc.:
 
 ```python
-results = monitor.check_new_messages()
+result = d.sync_from_sheet(reader)
 ```
 
-For each result where `result['player']` is not None, **present the proposed pick to the user**:
-- Show: "[sender/team] said: '[message text]' — Is this **[matched player name]**?"
-- Wait for user to confirm YES or NO
-- Only call `d.pick(player_name, team_name)` after confirmation
-- If NO, ask the user who was actually picked, or skip (it was just chat)
+**Present results to the user:**
+- Show count: "Found X new picks, Y unmatched"
+- For each new matched pick, show: "[owner] [hitter/pitcher] Rd [N]: [player name]"
+- For unmatched: show the name from the sheet and ask user to resolve manually
+- **Ask user to confirm** before applying: "Apply these X picks?"
+- Only call `d.apply_sheet_picks(result['matched'])` after confirmation
 
-For messages with no player match, show them as chat noise (no action needed).
-
-**CRITICAL**: Never auto-log picks. Always confirm with the user first.
+**Keepers**: Players pre-filled in the sheet before the draft starts are keepers.
+They appear as regular picks in early rounds. The sync treats them the same —
+they're drafted players occupying a roster spot and draft pick.
 
 ### 3. Get Recommendations When It's My Turn
 ```python
@@ -69,11 +72,10 @@ for i, r in enumerate(recs, 1):
 ```
 
 ### 4. Manual Pick Entry
-If the parser misses a pick or you need to enter one manually:
+If the sheet is behind or you need to enter a pick manually:
 ```python
-d.pick("Player Name")              # Auto-assigns to current picking team
-d.pick("Player Name", "Team 3")    # Specific team
-d.undo()                           # Undo last pick
+d.pick("Player Name", "OwnerName")
+d.undo()  # Undo last pick
 ```
 
 ### 5. Check Roster & Projections
@@ -104,20 +106,25 @@ print(d.status())
 ## Pre-Draft Setup (league.json)
 
 Before the draft, update `league.json` with:
-1. `draft_position` — your pick number (1-12)
-2. `team_map` — map each phone number to a team/owner name
-3. `draft_order` — list of team names in draft order (pick 1 first)
+1. `sheet_id` — the Google Sheet ID (from the URL: docs.google.com/spreadsheets/d/**THIS_PART**/edit)
+2. `hitter_selections_gid` — the gid for the Hitter Selections tab (from the URL: gid=**THIS_PART**)
+3. `pitcher_selections_gid` — the gid for the Pitcher Selections tab
+4. `my_team` — your owner name as it appears in the sheet
+5. `draft_position` — your pick number (1-12)
+6. `owners` — list of all owner names in draft order
+
+The sheet must be shared as "Anyone with the link can view" for the CSV export to work.
 
 ## Key Files
 - `data/players.json` — 933 players with projections from Mr. Cheatsheet's Special Blend
-- `league.json` — League config: team mapping, draft order, chat ID
-- `draft_state.json` — Live draft state (auto-saved after each pick)
-- `imessage_state.json` — Tracks last-read message ID
-- `src/drafter/imessage.py` — iMessage reader & parser
-- `src/drafter/draft.py` — Draft engine (pick logging, state management)
+- `league.json` — League config: sheet IDs, owner names, draft position
+- `draft_state.json` — Live draft state (auto-saved, .gitignored)
+- `src/drafter/sheets.py` — Google Sheets reader (CSV export, no auth needed)
+- `src/drafter/draft.py` — Draft engine (pick logging, sheet sync, state management)
 - `src/drafter/optimizer.py` — Ranking engine (z-scores, scarcity, needs)
 - `src/drafter/config.py` — League settings (categories, roster slots)
 - `src/drafter/models.py` — Data models
+- `src/drafter/imessage.py` — iMessage reader (backup, Mac-only)
 - `src/drafter/import_excel.py` — Excel import (run once to seed data)
 
 ## Roster Slots
@@ -129,6 +136,7 @@ C(1), 1B(1), 2B(1), 3B(1), SS(1), OF(5), DH(1), CI(1), MI(1), SP(5), RP(2), P(1)
 - **Category balance**: In H2H, avoid punting categories since you need to win 5+ cats each week
 - **ERA/WHIP**: Rate stats — consider IP volume when evaluating pitchers
 - **Snake draft**: If picking late in a round, you get back-to-back picks at the turn
+- **Keepers**: 3 keepers per team at a discounted round — factor in that top players may be kept
 
 ## Re-importing Player Data
 If the Excel file is updated:

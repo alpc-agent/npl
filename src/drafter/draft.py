@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from difflib import get_close_matches
 from pathlib import Path
 
 from .config import LeagueConfig
 from .models import DraftPick, DraftState, Player
+from .sheets import DraftSheetReader, SheetPick
 
 
 class Draft:
@@ -46,13 +48,22 @@ class Draft:
             )
             self.players[p["name"]] = player
 
+    def _normalize(self, text: str) -> str:
+        nfkd = unicodedata.normalize("NFKD", text)
+        return "".join(c for c in nfkd if not unicodedata.combining(c))
+
     def _resolve_player(self, name: str) -> Player:
-        """Find player by exact or fuzzy name match."""
+        """Find player by exact, case-insensitive, normalized, or fuzzy name match."""
         if name in self.players:
             return self.players[name]
         # Case-insensitive
         for pname, player in self.players.items():
             if pname.lower() == name.lower():
+                return player
+        # Normalized (accent-insensitive)
+        name_norm = self._normalize(name).lower()
+        for pname, player in self.players.items():
+            if self._normalize(pname).lower() == name_norm:
                 return player
         # Fuzzy match
         matches = get_close_matches(name, self.players.keys(), n=1, cutoff=0.6)
@@ -193,6 +204,73 @@ class Draft:
                 lines.append(f"Your next pick in: {picks_until} picks")
 
         return "\n".join(lines)
+
+    def sync_from_sheet(self, sheet_reader: DraftSheetReader) -> dict:
+        """Fetch picks from the Google Sheet and identify new ones.
+
+        Returns a dict with:
+          - matched: list of (SheetPick, Player) tuples ready to confirm
+          - unmatched: list of (SheetPick, error_msg) that couldn't be resolved
+          - already_drafted: count of picks already in our state
+        """
+        sheet_picks = sheet_reader.fetch_all_picks()
+
+        # Build set of already-known picks (by owner + resolved player name)
+        known = set()
+        for dp in self.state.picks:
+            known.add(f"{dp.team_name}:{dp.player_name}")
+
+        matched = []
+        unmatched = []
+        already_drafted = 0
+
+        for sp in sheet_picks:
+            try:
+                player = self._resolve_player(sp.player_name)
+                key = f"{sp.owner}:{player.name}"
+                if key in known:
+                    already_drafted += 1
+                    continue
+                matched.append((sp, player))
+            except ValueError as e:
+                unmatched.append((sp, str(e)))
+
+        return {
+            "matched": matched,
+            "unmatched": unmatched,
+            "already_drafted": already_drafted,
+        }
+
+    def apply_sheet_picks(self, picks: list[tuple[SheetPick, Player]]) -> list[str]:
+        """Apply confirmed sheet picks to the draft state.
+
+        Each pick is logged with the owner name as team_name.
+        Returns list of confirmation messages.
+        """
+        messages = []
+        for sp, player in picks:
+            if player.player_id in self.state.drafted_player_ids():
+                messages.append(f"  SKIP: {player.name} already drafted")
+                continue
+
+            dp = DraftPick(
+                pick_number=len(self.state.picks) + 1,
+                round_number=sp.round_number,
+                player_name=player.name,
+                player_id=player.player_id,
+                team_name=sp.owner,
+            )
+            self.state.picks.append(dp)
+            is_mine = sp.owner == self.state.my_team
+            marker = " ⭐" if is_mine else ""
+            messages.append(
+                f"  {sp.pick_type.upper()} Rd {sp.round_number}: "
+                f"{sp.owner} takes {player.name} "
+                f"({'/'.join(player.positions)}){marker}"
+            )
+
+        self._save()
+        return messages
 
     def _save(self) -> None:
         self.state.save(self.state_path)
