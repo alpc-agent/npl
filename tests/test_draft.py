@@ -200,3 +200,34 @@ class TestPickAndUndo:
     def test_undo_empty(self, draft):
         result = draft.undo()
         assert "No picks" in result
+
+
+# ---------------------------------------------------------------------------
+# Sheet owner alias tests
+# ---------------------------------------------------------------------------
+
+class TestOwnerAliases:
+    def test_alias_resolves_in_picks(self):
+        from drafter.sheets import SheetPick, DraftSheetReader, parse_selections_tab
+        reader = DraftSheetReader("fake", "0", "1", owner_aliases={"Robocop": "Muppy"})
+        assert reader._resolve_owner("Robocop") == "Muppy"
+        assert reader._resolve_owner("Andrew") == "Andrew"
+
+    def test_alias_applied_to_parsed_picks(self):
+        from drafter.sheets import SheetPick, parse_selections_tab
+        rows = [
+            ["Owner", "1", "2"],
+            ["Robocop", "Paul Skenes", ""],
+            ["Andrew", "Framber Valdez", ""],
+        ]
+        picks = parse_selections_tab(rows, "pitcher")
+        assert picks[0].owner == "Robocop"  # raw parse doesn't alias
+
+        # But DraftSheetReader applies aliases
+        from drafter.sheets import DraftSheetReader
+        reader = DraftSheetReader.__new__(DraftSheetReader)
+        reader.owner_aliases = {"Robocop": "Muppy"}
+        for p in picks:
+            p.owner = reader._resolve_owner(p.owner)
+        assert picks[0].owner == "Muppy"
+        assert picks[1].owner == "Andrew"

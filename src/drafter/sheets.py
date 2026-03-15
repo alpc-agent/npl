@@ -75,10 +75,16 @@ def parse_selections_tab(rows: list[list[str]], pick_type: str) -> list[SheetPic
 class DraftSheetReader:
     """Reads draft state from the NPL Draft Google Sheet."""
 
-    def __init__(self, sheet_id: str, hitter_gid: str, pitcher_gid: str):
+    def __init__(self, sheet_id: str, hitter_gid: str, pitcher_gid: str,
+                 owner_aliases: dict[str, str] | None = None):
         self.sheet_id = sheet_id
         self.hitter_gid = hitter_gid
         self.pitcher_gid = pitcher_gid
+        self.owner_aliases = owner_aliases or {}  # e.g. {"Robocop": "Muppy"}
+
+    def _resolve_owner(self, name: str) -> str:
+        """Map sheet owner name to canonical name via aliases."""
+        return self.owner_aliases.get(name, name)
 
     def fetch_all_picks(self) -> list[SheetPick]:
         """Fetch all picks from both Hitter and Pitcher Selections tabs."""
@@ -88,7 +94,10 @@ class DraftSheetReader:
         hitter_picks = parse_selections_tab(hitter_rows, "hitter")
         pitcher_picks = parse_selections_tab(pitcher_rows, "pitcher")
 
-        return hitter_picks + pitcher_picks
+        all_picks = hitter_picks + pitcher_picks
+        for pick in all_picks:
+            pick.owner = self._resolve_owner(pick.owner)
+        return all_picks
 
     def get_owners(self) -> list[str]:
         """Get the list of owner names from the sheet."""
@@ -96,7 +105,7 @@ class DraftSheetReader:
         owners = []
         for row_idx in range(1, min(len(rows), 14)):
             if rows[row_idx] and rows[row_idx][0].strip():
-                owners.append(rows[row_idx][0].strip())
+                owners.append(self._resolve_owner(rows[row_idx][0].strip()))
         return owners
 
     def diff(self, known_picks: set[str]) -> list[SheetPick]:

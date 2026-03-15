@@ -38,6 +38,7 @@ reader = DraftSheetReader(
     sheet_id=league['sheet_id'],
     hitter_gid=league['hitter_selections_gid'],
     pitcher_gid=league['pitcher_selections_gid'],
+    owner_aliases=league.get('owner_aliases', {}),
 )
 
 # First time only — set up your team:
