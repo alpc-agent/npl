@@ -32,6 +32,7 @@ class Recommendation:
     adp_rank: int = 0  # Mr. Cheatsheet's objective rank (by ADP among available)
     tiers: list[TierInfo] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
+    rank_insight: str = ""  # Why AI rank differs from cheatsheet rank
 
     @property
     def best_tier(self) -> TierInfo | None:
@@ -108,11 +109,12 @@ class Optimizer:
         ), reverse=True)
         recs = recs[:n]
 
-        # Assign tags: copy from player + derive "value" tag
+        # Assign tags and rank insights
         for i, r in enumerate(recs, 1):
             r.tags = list(r.player.tags)
             if r.adp_rank >= i + 15:
                 r.tags.append("value")
+            r.rank_insight = self._rank_insight(r, ai_rank=i)
 
         return recs
 
@@ -467,6 +469,41 @@ class Optimizer:
                 bonus += needs[cat] * 0.3
 
         return bonus
+
+    def _rank_insight(self, rec: Recommendation, ai_rank: int) -> str:
+        """Explain why AI rank differs from cheatsheet rank."""
+        diff = rec.adp_rank - ai_rank
+        if abs(diff) < 5:
+            return ""
+
+        if diff > 0:
+            direction = f"AI ranks {diff} spots higher"
+        else:
+            direction = f"AI ranks {-diff} spots lower"
+
+        # Break total_score into component shares to find what's driving divergence
+        total = abs(rec.z_score_value) + abs(rec.scarcity_bonus) + abs(rec.need_bonus)
+        if total == 0:
+            return direction
+
+        drivers = []
+        # Only flag components that are meaningful contributors
+        if rec.scarcity_bonus > 0.3:
+            scarce_pos = [p for p in rec.player.positions if p not in ("OF", "DH")]
+            pos_label = f" ({scarce_pos[0]})" if scarce_pos else ""
+            drivers.append(f"positional scarcity{pos_label}")
+        if rec.need_bonus > 0.5:
+            drivers.append("fills roster category needs")
+        if rec.best_tier and rec.best_tier.tier <= 2 and rec.best_tier.remaining_in_tier <= 3:
+            drivers.append(f"last {rec.best_tier.remaining_in_tier} in {rec.best_tier.position} Tier {rec.best_tier.tier}")
+
+        if diff > 0 and not drivers:
+            # AI likes them more than consensus — projections must be the reason
+            drivers.append("projections outpace ADP")
+        elif diff < 0 and not drivers:
+            drivers.append("ADP outpaces projections")
+
+        return f"{direction} — {', '.join(drivers)}"
 
     def _build_reasoning(
         self,
