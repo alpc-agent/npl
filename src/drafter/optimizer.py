@@ -216,11 +216,12 @@ class Optimizer:
         z_scores: dict[str, float],
         pool: str | None = None,
     ) -> dict[str, list[TierInfo]]:
-        """Compute position-based tiers for available players.
+        """Compute position-based tiers using natural gap detection.
 
         Players appear in tiers for EVERY position they're eligible for.
-        Uses fixed-count tiers: tier_size = num_teams for single-slot positions,
-        scaled by roster slots for multi-slot positions (e.g., SP has 5 slots).
+        Tiers are determined by finding significant z-score gaps between
+        consecutive players at each position — a tier break occurs when the
+        drop-off exceeds a threshold relative to the overall spread.
         """
         if pool == "hitter":
             positions = {"C", "1B", "2B", "SS", "3B", "LF", "CF", "RF"}
@@ -238,40 +239,23 @@ class Optimizer:
                     continue
                 if pos in p.positions:
                     players_at_pos.append((p.name, z_scores[p.name]))
-                # Also handle OF eligibility for LF/CF/RF
                 elif pos in ("LF", "CF", "RF") and "OF" in p.positions:
                     players_at_pos.append((p.name, z_scores[p.name]))
             if players_at_pos:
-                # Sort by z-score descending
                 players_at_pos.sort(key=lambda x: x[1], reverse=True)
                 pos_players[pos] = players_at_pos
 
-        # Determine tier size per position
-        # Tier 1 = elite starters (roughly 1 per team)
-        # For multi-slot positions (SP=5), tier 1 is still ~12 (the aces),
-        # not 60 (all starters). Tiers represent talent clusters, not roster fill.
-        tier_sizes: dict[str, int] = {}
-        for pos in positions:
-            tier_sizes[pos] = self.config.num_teams  # 12 per tier
-
-        # Assign tiers
+        # Assign tiers using natural gap detection
         result: dict[str, list[TierInfo]] = {}
         for pos, players_list in pos_players.items():
-            tier_size = tier_sizes.get(pos, 12)
-            total_at_pos = len(players_list)
+            tier_assignments = self._find_natural_tiers(players_list)
 
-            for rank, (name, _z) in enumerate(players_list):
-                tier_num = rank // tier_size + 1
-                # Count remaining in this tier
-                tier_start = (tier_num - 1) * tier_size
-                tier_end = min(tier_num * tier_size, total_at_pos)
-                total_in_tier = tier_end - tier_start
-
+            for name, tier_num, tier_count in tier_assignments:
                 info = TierInfo(
                     position=pos,
                     tier=tier_num,
-                    total_in_tier=total_in_tier,
-                    remaining_in_tier=total_in_tier,  # All remaining since they're available
+                    total_in_tier=tier_count,
+                    remaining_in_tier=tier_count,
                 )
 
                 if name not in result:
@@ -280,8 +264,59 @@ class Optimizer:
 
         return result
 
+    def _find_natural_tiers(
+        self, players: list[tuple[str, float]], max_tiers: int = 8
+    ) -> list[tuple[str, int, int]]:
+        """Find natural tier breaks in a sorted list of (name, z_score) tuples.
+
+        Uses gap detection: a tier break occurs when the z-score drop between
+        consecutive players exceeds a threshold. The threshold adapts to the
+        data spread — it's the median gap * a multiplier, so positions with
+        tight clustering get finer tiers and positions with big drop-offs
+        get clear breaks.
+
+        Returns list of (name, tier_number, players_in_tier).
+        """
+        if not players:
+            return []
+        if len(players) == 1:
+            return [(players[0][0], 1, 1)]
+
+        # Compute gaps between consecutive players
+        gaps = []
+        for i in range(len(players) - 1):
+            gap = players[i][1] - players[i + 1][1]
+            gaps.append(gap)
+
+        # Threshold: gaps significantly larger than typical are tier breaks
+        # Use median gap * 1.5 as the break threshold (robust to outliers)
+        sorted_gaps = sorted(gaps)
+        median_gap = sorted_gaps[len(sorted_gaps) // 2]
+        # Minimum threshold to avoid too many tiers from tiny fluctuations
+        threshold = max(median_gap * 1.5, 0.3)
+
+        # Assign tiers
+        tier_num = 1
+        tier_start = 0
+        assignments: list[tuple[str, int]] = [(players[0][0], 1)]
+
+        for i, gap in enumerate(gaps):
+            if gap >= threshold and tier_num < max_tiers:
+                tier_num += 1
+            assignments.append((players[i + 1][0], tier_num))
+
+        # Count players per tier and build result
+        tier_counts: dict[int, int] = {}
+        for _, t in assignments:
+            tier_counts[t] = tier_counts.get(t, 0) + 1
+
+        return [(name, tier, tier_counts[tier]) for name, tier in assignments]
+
     def _tier_urgency_bonus(self, tiers: list[TierInfo]) -> float:
-        """Bonus for players in nearly-depleted elite tiers."""
+        """Bonus for players in nearly-depleted elite tiers.
+
+        Uses percentage-based depletion since tier sizes vary naturally.
+        """
         if not tiers:
             return 0
 
@@ -289,13 +324,17 @@ class Optimizer:
         for t in tiers:
             if t.tier > 2:
                 continue
-            # Urgency increases as tier depletes
-            # Tier 1 with <=3 remaining: strong signal
-            # Tier 2 with <=3 remaining: moderate signal
+            # Urgency: fewer remaining = more urgent
+            # For small tiers (1-3 players), any remaining triggers urgency
             if t.remaining_in_tier <= 3:
                 tier_weight = 1.0 if t.tier == 1 else 0.5
                 depletion = (4 - t.remaining_in_tier) / 3  # 0.33 to 1.0
                 bonus = max(bonus, tier_weight * depletion * 0.8)
+            elif t.total_in_tier > 3 and t.remaining_in_tier <= t.total_in_tier * 0.25:
+                # Larger tier nearly depleted (< 25% remaining)
+                tier_weight = 1.0 if t.tier == 1 else 0.5
+                pct_gone = 1 - (t.remaining_in_tier / t.total_in_tier)
+                bonus = max(bonus, tier_weight * pct_gone * 0.6)
 
         return bonus
 
