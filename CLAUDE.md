@@ -143,7 +143,7 @@ players (by ADP) to project a realistic full-season roster, then ranks against l
 season's actual league data from `data/league_history.json`.
 ```python
 rel = opt.league_relative_dashboard(my_roster, available=d.available())
-# Returns: my_projections, scaled_projections, rankings (#1-12), deltas (%), hint
+# Returns: scaled_projections, rankings (#1-12), deltas (%), hint
 ```
 
 ### 3d. Sync — "sync" / "catch me up"

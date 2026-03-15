@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .config import LeagueConfig
 from .models import Player
@@ -944,6 +946,20 @@ class Optimizer:
 
         return results
 
+    def _load_league_history(self, history_path: str) -> list[dict]:
+        """Load and cache league history data. Returns empty list if missing."""
+        if not hasattr(self, "_league_history_cache"):
+            self._league_history_cache: dict[str, list[dict]] = {}
+        if history_path not in self._league_history_cache:
+            p = Path(history_path)
+            if not p.exists():
+                self._league_history_cache[history_path] = []
+            else:
+                with open(p, encoding="utf-8") as f:
+                    data = json.load(f)
+                self._league_history_cache[history_path] = data.get("teams", [])
+        return self._league_history_cache[history_path]
+
     def league_relative_dashboard(
         self, my_roster: list[Player],
         available: list[Player] | None = None,
@@ -955,10 +971,22 @@ class Optimizer:
         to project a realistic full-season roster, then ranks against
         historical league data.
 
-        Returns projected league rank (1-12) and percentage delta vs median.
+        Returns scaled_projections, rankings (1-N), deltas (%), and hint.
         For inverse stats (ERA, WHIP), sign is flipped so + always = good.
         """
-        import json
+        empty_result = {
+            "scaled_projections": {},
+            "rankings": {},
+            "deltas": {},
+            "hint": "",
+        }
+
+        if not my_roster:
+            return empty_result
+
+        hist_teams = self._load_league_history(history_path)
+        if not hist_teams:
+            return empty_result
 
         target_hitters = sum(
             v for k, v in self.config.roster_slots.items()
@@ -992,12 +1020,7 @@ class Optimizer:
                     projected_roster.append(p)
                     p_filled += 1
 
-        my_proj = self.analyze_roster(my_roster)
         scaled = self.analyze_roster(projected_roster)
-
-        with open(history_path, encoding="utf-8") as f:
-            history = json.load(f)
-        hist_teams = history["teams"]
 
         rankings: dict[str, int] = {}
         deltas: dict[str, float] = {}
@@ -1019,11 +1042,17 @@ class Optimizer:
                     if my_val >= hv:
                         break
                 rank += 1
-            rankings[cat] = min(rank, len(hist_vals) + 1)
+            rankings[cat] = min(rank, len(hist_vals))
 
-            # Delta vs league median (average of 6th and 7th)
-            median = (hist_vals[5] + hist_vals[6]) / 2 if len(hist_vals) >= 7 else 0
-            if median != 0 and my_val != 0:
+            # Delta vs league median
+            n = len(hist_vals)
+            if n >= 2:
+                median = (hist_vals[n // 2 - 1] + hist_vals[n // 2]) / 2
+            elif n == 1:
+                median = hist_vals[0]
+            else:
+                median = 0
+            if median != 0:
                 pct = (my_val - median) / median * 100
                 if cat in self.config.inverse_categories:
                     pct = -pct
@@ -1047,7 +1076,6 @@ class Optimizer:
             hint = f"Projected top 3 in {', '.join(top3)}."
 
         return {
-            "my_projections": my_proj,
             "scaled_projections": scaled,
             "rankings": rankings,
             "deltas": deltas,
