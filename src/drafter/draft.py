@@ -137,14 +137,24 @@ class Draft:
         self,
         position: str | None = None,
         limit: int = 20,
+        pool: str | None = None,
     ) -> list[Player]:
-        """Get available players, optionally filtered by position."""
+        """Get available players, optionally filtered by position and pool.
+
+        Args:
+            pool: "hitter" or "pitcher" to restrict to that draft pool.
+        """
         drafted = self.state.drafted_player_ids()
         avail = [
             p for p in self.players.values()
             if p.player_id not in drafted
             and (p.hitting_projections or p.pitching_projections)
         ]
+
+        if pool == "hitter":
+            avail = [p for p in avail if p.is_hitter]
+        elif pool == "pitcher":
+            avail = [p for p in avail if p.is_pitcher]
 
         if position:
             pos = position.upper()

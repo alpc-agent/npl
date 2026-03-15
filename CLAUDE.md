@@ -9,8 +9,12 @@ The user interacts with this tool through Claude Code conversations during their
 ## Draft Day Workflow (Google Sheets Integration)
 
 The draft is tracked via a shared Google Sheet with Hitter Selections and Pitcher Selections tabs.
-Claude fetches the sheet, matches player names to the database, and **waits for user confirmation
-before logging any picks**.
+The sheet is the source of truth — picks are applied automatically on sync.
+
+**IMPORTANT: Hitters and pitchers are drafted in separate pools.**
+When the user asks "who should I pick?", always ask (or infer from context) whether
+it's a hitter or pitcher pick, and pass `pool="hitter"` or `pool="pitcher"` to both
+`d.available()` and `opt.recommend()`. Never mix the pools in recommendations.
 
 ### 1. Initialize the Draft Session
 ```python
@@ -59,10 +63,16 @@ They appear as regular picks in early rounds. The sync treats them the same —
 they're drafted players occupying a roster spot and draft pick.
 
 ### 3. Get Recommendations When It's My Turn
+**Always specify pool="hitter" or pool="pitcher"** since they are drafted separately.
 ```python
-available = d.available()
+# For a hitter pick:
+available = d.available(pool="hitter")
 my_roster = d.my_roster_players()
-recs = opt.recommend(available, my_roster, list(d.players.values()), n=10)
+recs = opt.recommend(available, my_roster, list(d.players.values()), n=10, pool="hitter")
+
+# For a pitcher pick:
+available = d.available(pool="pitcher")
+recs = opt.recommend(available, my_roster, list(d.players.values()), n=10, pool="pitcher")
 
 for i, r in enumerate(recs, 1):
     pos = '/'.join(r.player.positions)
@@ -93,9 +103,10 @@ for cat, val in totals.items():
 
 ### 6. Browse Available by Position
 ```python
-for p in d.available(position="SS", limit=10):
+for p in d.available(position="SS", pool="hitter", limit=10):
     print(f"  {p.adp:>5.0f}  {p.name:<25} {p.team}")
-# Valid positions: C, 1B, 2B, 3B, SS, OF, DH, SP, RP, CI, MI, P
+# Hitter positions: C, 1B, 2B, 3B, SS, OF, DH, CI, MI
+# Pitcher positions: SP, RP, P
 ```
 
 ### 7. Draft Status

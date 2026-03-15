@@ -29,19 +29,35 @@ class Optimizer:
         my_roster: list[Player],
         all_players: list[Player],
         n: int = 10,
+        pool: str | None = None,
     ) -> list[Recommendation]:
-        """Recommend the best available picks considering value, scarcity, and need."""
+        """Recommend the best available picks considering value, scarcity, and need.
+
+        Args:
+            pool: "hitter" or "pitcher" to restrict to that pool.
+                  Since hitters and pitchers are drafted separately, this should
+                  always be specified. If None, uses all players (legacy behavior).
+        """
         if not available:
             return []
 
-        # Compute z-scores for available players across all categories
-        z_scores = self._compute_z_scores(available)
+        # Filter to the correct pool
+        if pool == "hitter":
+            available = [p for p in available if p.is_hitter]
+        elif pool == "pitcher":
+            available = [p for p in available if p.is_pitcher]
+
+        if not available:
+            return []
+
+        # Compute z-scores for available players across relevant categories
+        z_scores = self._compute_z_scores(available, pool=pool)
 
         # Compute positional scarcity
-        scarcity = self._compute_scarcity(available)
+        scarcity = self._compute_scarcity(available, pool=pool)
 
         # Compute category needs based on current roster
-        needs = self._compute_category_needs(my_roster, available)
+        needs = self._compute_category_needs(my_roster, available, pool=pool)
 
         recs = []
         for player in available:
@@ -67,23 +83,35 @@ class Optimizer:
         recs.sort(key=lambda r: r.total_score, reverse=True)
         return recs[:n]
 
-    def _compute_z_scores(self, players: list[Player]) -> dict[str, float]:
+    def _compute_z_scores(
+        self, players: list[Player], pool: str | None = None
+    ) -> dict[str, float]:
         """Compute aggregate z-score value for each player across scoring categories."""
-        # Collect stat values per category
+        if pool == "hitter":
+            categories = self.config.hitting_categories
+        elif pool == "pitcher":
+            categories = self.config.pitching_categories
+        else:
+            categories = self.config.all_categories
+
         cat_values: dict[str, list[tuple[str, float]]] = {
-            cat: [] for cat in self.config.all_categories
+            cat: [] for cat in categories
         }
 
         for p in players:
-            for cat in self.config.hitting_categories:
-                val = p.hitting_projections.get(cat)
-                if val is not None:
-                    cat_values[cat].append((p.name, val))
+            if pool != "pitcher":
+                for cat in self.config.hitting_categories:
+                    if cat in categories:
+                        val = p.hitting_projections.get(cat)
+                        if val is not None:
+                            cat_values[cat].append((p.name, val))
 
-            for cat in self.config.pitching_categories:
-                val = p.pitching_projections.get(cat)
-                if val is not None:
-                    cat_values[cat].append((p.name, val))
+            if pool != "hitter":
+                for cat in self.config.pitching_categories:
+                    if cat in categories:
+                        val = p.pitching_projections.get(cat)
+                        if val is not None:
+                            cat_values[cat].append((p.name, val))
 
         # Compute z-scores per category
         player_z: dict[str, float] = {}
@@ -107,10 +135,15 @@ class Optimizer:
 
         return player_z
 
-    def _compute_scarcity(self, available: list[Player]) -> dict[str, float]:
+    def _compute_scarcity(
+        self, available: list[Player], pool: str | None = None
+    ) -> dict[str, float]:
         """Compute scarcity score for each position based on available talent."""
         pos_counts: dict[str, int] = {}
         roster = self.config.roster_slots
+
+        hitting_positions = {"C", "1B", "2B", "3B", "SS", "OF", "DH", "CI", "MI"}
+        pitching_positions = {"SP", "RP", "P"}
 
         for p in available:
             for pos in p.positions:
@@ -120,6 +153,11 @@ class Optimizer:
         scarcity = {}
         for pos, slots in roster.items():
             if pos == "Bench":
+                continue
+            # Skip positions not relevant to the current pool
+            if pool == "hitter" and pos not in hitting_positions:
+                continue
+            if pool == "pitcher" and pos not in pitching_positions:
                 continue
             count = pos_counts.get(pos, 0)
             if pos == "CI":
@@ -145,22 +183,34 @@ class Optimizer:
         return max(scarcity.get(pos, 0) for pos in player.positions) * 0.5
 
     def _compute_category_needs(
-        self, my_roster: list[Player], available: list[Player]
+        self, my_roster: list[Player], available: list[Player],
+        pool: str | None = None,
     ) -> dict[str, float]:
         """Score how much each category needs help (higher = greater need)."""
+        if pool == "hitter":
+            categories = self.config.hitting_categories
+        elif pool == "pitcher":
+            categories = self.config.pitching_categories
+        else:
+            categories = self.config.all_categories
+
         if not my_roster:
-            return {cat: 1.0 for cat in self.config.all_categories}
+            return {cat: 1.0 for cat in categories}
 
         # Sum current roster projections per category
         totals: dict[str, float] = {}
-        for cat in self.config.hitting_categories:
-            totals[cat] = sum(
-                p.hitting_projections.get(cat, 0) for p in my_roster if p.is_hitter
-            )
-        for cat in self.config.pitching_categories:
-            totals[cat] = sum(
-                p.pitching_projections.get(cat, 0) for p in my_roster if p.is_pitcher
-            )
+        if pool != "pitcher":
+            for cat in self.config.hitting_categories:
+                if cat in categories:
+                    totals[cat] = sum(
+                        p.hitting_projections.get(cat, 0) for p in my_roster if p.is_hitter
+                    )
+        if pool != "hitter":
+            for cat in self.config.pitching_categories:
+                if cat in categories:
+                    totals[cat] = sum(
+                        p.pitching_projections.get(cat, 0) for p in my_roster if p.is_pitcher
+                    )
 
         # Compare to what a "target" roster would have
         # Use average of top-N available as benchmark
@@ -168,16 +218,20 @@ class Optimizer:
         top_avail = sorted(available, key=lambda p: p.adp)[:n_bench]
 
         target: dict[str, float] = {}
-        for cat in self.config.hitting_categories:
-            vals = [p.hitting_projections.get(cat, 0) for p in top_avail if p.is_hitter]
-            target[cat] = sum(vals) / max(len(vals), 1)
-        for cat in self.config.pitching_categories:
-            vals = [p.pitching_projections.get(cat, 0) for p in top_avail if p.is_pitcher]
-            target[cat] = sum(vals) / max(len(vals), 1)
+        if pool != "pitcher":
+            for cat in self.config.hitting_categories:
+                if cat in categories:
+                    vals = [p.hitting_projections.get(cat, 0) for p in top_avail if p.is_hitter]
+                    target[cat] = sum(vals) / max(len(vals), 1)
+        if pool != "hitter":
+            for cat in self.config.pitching_categories:
+                if cat in categories:
+                    vals = [p.pitching_projections.get(cat, 0) for p in top_avail if p.is_pitcher]
+                    target[cat] = sum(vals) / max(len(vals), 1)
 
         # Need score: how far behind the average contribution we are
         needs = {}
-        for cat in self.config.all_categories:
+        for cat in categories:
             if target.get(cat, 0) == 0:
                 needs[cat] = 1.0
                 continue
