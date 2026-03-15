@@ -682,3 +682,123 @@ class TestLeagueRelativeDashboard:
         roster = [_hitter("H1", ["SS"], adp=10)]
         result = opt.league_relative_dashboard(roster, available=None, history_path=hist)
         assert "my_projections" not in result
+
+
+# ---------------------------------------------------------------------------
+# league_adp_adjustments
+# ---------------------------------------------------------------------------
+
+class TestLeagueAdpAdjustments:
+    def test_config_default_empty(self):
+        config = LeagueConfig()
+        assert config.league_adp_adjustments == {}
+
+    def test_config_with_adjustments(self):
+        config = LeagueConfig(league_adp_adjustments={"RP": 2.0})
+        assert config.league_adp_adjustments["RP"] == 2.0
+
+    def test_pick_safety_discounts_rp_rate(self):
+        """With RP adjustment, pick_safety should compute higher survival probability."""
+        pitchers = [
+            _pitcher("Ace SP", ["SP"], adp=20, K=250, ERA=2.50, QS=25),
+            _pitcher("Good SP", ["SP"], adp=40, K=200, ERA=3.20, QS=18),
+            _pitcher("Mid SP", ["SP"], adp=60, K=170, ERA=3.50, QS=15),
+            _pitcher("Closer1", ["RP"], adp=50, SV=35, K=80, ERA=2.80, IP=65, H=50, BB=20, ER=20),
+            _pitcher("Closer2", ["RP"], adp=70, SV=30, K=70, ERA=3.00, IP=60, H=48, BB=18, ER=20),
+            _pitcher("Closer3", ["RP"], adp=90, SV=25, K=60, ERA=3.20, IP=55, H=45, BB=17, ER=20),
+        ]
+        threat = [
+            {"pick_number": i, "team_name": f"T{i}", "positions_filled": set()}
+            for i in range(1, 6)
+        ]
+
+        # Without adjustment
+        config_base = LeagueConfig()
+        opt_base = Optimizer(config_base)
+        result_base = opt_base.pick_safety(pitchers, [], threat, pool="pitcher")
+        rp_base = next((s for s in result_base if s.position == "RP"), None)
+
+        # With RP +2.0 adjustment
+        config_adj = LeagueConfig(league_adp_adjustments={"RP": 2.0})
+        opt_adj = Optimizer(config_adj)
+        result_adj = opt_adj.pick_safety(pitchers, [], threat, pool="pitcher")
+        rp_adj = next((s for s in result_adj if s.position == "RP"), None)
+
+        assert rp_base is not None
+        assert rp_adj is not None
+        # Adjusted probability should be higher (more safe) than base
+        assert rp_adj.prob_available >= rp_base.prob_available
+
+    def test_no_adjustment_for_sp(self):
+        """SP should be unaffected when only RP has an adjustment."""
+        pitchers = [
+            _pitcher("Ace SP", ["SP"], adp=20, K=250, ERA=2.50, QS=25),
+            _pitcher("Good SP", ["SP"], adp=40, K=200, ERA=3.20, QS=18),
+            _pitcher("Closer", ["RP"], adp=50, SV=35, K=80, ERA=2.80, IP=65, H=50, BB=20, ER=20),
+        ]
+        threat = [
+            {"pick_number": 1, "team_name": "T1", "positions_filled": set()},
+        ]
+
+        config_base = LeagueConfig()
+        opt_base = Optimizer(config_base)
+        result_base = opt_base.pick_safety(pitchers, [], threat, pool="pitcher")
+        sp_base = next((s for s in result_base if s.position == "SP"), None)
+
+        config_adj = LeagueConfig(league_adp_adjustments={"RP": 2.0})
+        opt_adj = Optimizer(config_adj)
+        result_adj = opt_adj.pick_safety(pitchers, [], threat, pool="pitcher")
+        sp_adj = next((s for s in result_adj if s.position == "SP"), None)
+
+        assert sp_base is not None and sp_adj is not None
+        assert sp_adj.prob_available == sp_base.prob_available
+
+
+class TestWaitSnipeTags:
+    def test_wait_tag_on_safe_rp(self):
+        """RP with safe signal and league adjustment should get 'wait' tag."""
+        config = LeagueConfig(league_adp_adjustments={"RP": 2.0})
+        opt = Optimizer(config)
+        p = _pitcher("Closer", ["RP"], adp=50, SV=35)
+        rec = Recommendation(player=p, total_score=5.0, z_score_value=3.0,
+                             scarcity_bonus=1.0, need_bonus=1.0, reasoning="test")
+        safety = [PickSafety("RP", 5, 10, 2, 0.85, "safe", "plenty of closers")]
+        opt.annotate_safety([rec], safety)
+        assert "wait" in rec.tags
+
+    def test_snipe_tag_on_elite_monitor_rp(self):
+        """Elite RP (top 5 ADP) with monitor signal should get 'snipe' tag."""
+        config = LeagueConfig(league_adp_adjustments={"RP": 2.0})
+        opt = Optimizer(config)
+        p = _pitcher("Elite Closer", ["RP"], adp=30, SV=40)
+        rec = Recommendation(player=p, total_score=7.0, z_score_value=4.0,
+                             scarcity_bonus=1.5, need_bonus=1.5, reasoning="test",
+                             adp_rank=3)
+        safety = [PickSafety("RP", 3, 10, 5, 0.50, "monitor", "getting thin")]
+        opt.annotate_safety([rec], safety)
+        assert "snipe" in rec.tags
+
+    def test_no_wait_tag_without_adjustment(self):
+        """Without league adjustment, safe RP should NOT get 'wait' tag."""
+        config = LeagueConfig()
+        opt = Optimizer(config)
+        p = _pitcher("Closer", ["RP"], adp=50, SV=35)
+        rec = Recommendation(player=p, total_score=5.0, z_score_value=3.0,
+                             scarcity_bonus=1.0, need_bonus=1.0, reasoning="test")
+        safety = [PickSafety("RP", 5, 10, 0, 1.0, "safe", "no one needs RP")]
+        opt.annotate_safety([rec], safety)
+        assert "wait" not in rec.tags
+        # Should still get normal "safe" tag
+        assert "safe" in rec.tags
+
+    def test_no_snipe_tag_on_non_elite(self):
+        """Non-elite RP (ADP rank > 5) with monitor signal should NOT get 'snipe'."""
+        config = LeagueConfig(league_adp_adjustments={"RP": 2.0})
+        opt = Optimizer(config)
+        p = _pitcher("Mid Closer", ["RP"], adp=100, SV=25)
+        rec = Recommendation(player=p, total_score=4.0, z_score_value=2.0,
+                             scarcity_bonus=1.0, need_bonus=1.0, reasoning="test",
+                             adp_rank=15)
+        safety = [PickSafety("RP", 3, 10, 5, 0.50, "monitor", "getting thin")]
+        opt.annotate_safety([rec], safety)
+        assert "snipe" not in rec.tags

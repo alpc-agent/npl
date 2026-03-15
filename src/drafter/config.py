@@ -26,6 +26,11 @@ class LeagueConfig:
     # Empty dict = all 1.0 (balanced). Values < 0.5 suppress need-chasing.
     category_weights: dict[str, float] = field(default_factory=dict)
 
+    # League-specific ADP adjustments: position -> round shift.
+    # Positive = league drafts this position later than consensus (e.g. {"RP": 2.0}).
+    # Used by pick_safety() to discount threat probabilities for delayed positions.
+    league_adp_adjustments: dict[str, float] = field(default_factory=dict)
+
     roster_slots: dict[str, int] = field(
         default_factory=lambda: {
             "C": 1,

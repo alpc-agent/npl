@@ -170,6 +170,20 @@ class Optimizer:
                     if "safe" not in r.tags:
                         r.tags.append("safe")
 
+            # WAIT/SNIPE tags for positions with league ADP adjustments (e.g. RP).
+            # WAIT: this player's position is safe, you can delay.
+            # SNIPE: elite player at a league-discounted position — grab the value.
+            if matched and self.config.league_adp_adjustments:
+                for sf in matched:
+                    adj = self.config.league_adp_adjustments.get(sf.position, 0)
+                    if adj <= 0:
+                        continue
+                    if sf.signal == "safe" and "wait" not in r.tags:
+                        r.tags.append("wait")
+                    elif sf.signal == "monitor" and r.adp_rank <= 5:
+                        if "snipe" not in r.tags:
+                            r.tags.append("snipe")
+
     def _compute_z_scores(
         self, players: list[Player], pool: str | None = None
     ) -> dict[str, float]:
@@ -887,6 +901,9 @@ class Optimizer:
             # Count teams picking before us that haven't filled this position,
             # and estimate each team's probability of drafting this position
             # based on how many unfilled positions they have.
+            # Apply league ADP adjustment: if the league historically delays
+            # a position, discount pick_rate proportionally.
+            league_adj = self.config.league_adp_adjustments.get(pos, 0)
             teams_needing = 0
             team_pick_rates = []
             for tw in threat_window:
@@ -895,6 +912,9 @@ class Optimizer:
                     # More unfilled positions = lower chance of picking THIS one
                     unfilled = len(all_positions) - len(tw["positions_filled"])
                     pick_rate = 1.0 / max(unfilled, 1)
+                    # League tendency: discount by ~30% per round of delay
+                    if league_adj > 0:
+                        pick_rate *= max(0.05, 1 - 0.3 * league_adj)
                     team_pick_rates.append(pick_rate)
 
             # Probability at least one viable player survives.
