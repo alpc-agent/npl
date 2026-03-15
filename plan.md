@@ -5,6 +5,33 @@ Your league drafts RPs later than consensus ADP suggests. This is a persistent l
 
 ## What to Build
 
+### Step 0. Extract 2025 Pitcher Draft History from the Google Sheet
+
+The 2025 draft sheet is already wired up in `league.json`:
+- **Sheet ID:** `1bhs-QzmunMDLWxT3GvRvLg4l1M_8bgheiu2FC43D74E`
+- **Pitcher Selections GID:** `1822798668`
+- **Hitter Selections GID:** still needed (check the tab URL)
+- **Owners (draft order):** Daniel, Hayden, Jack, Ethan, Luke, Muppy, Vik, Matt, Connor, Jacob, Andrew, Sam
+
+Use `DraftSheetReader` to fetch the 2025 pitcher picks. The reader already handles
+this layout — just point it at the 2025 sheet and call `fetch_all_picks()`.
+
+**Only pitcher picks are needed for the RP discount analysis.**
+
+```python
+from drafter.sheets import DraftSheetReader
+
+reader = DraftSheetReader(
+    sheet_id="1bhs-QzmunMDLWxT3GvRvLg4l1M_8bgheiu2FC43D74E",
+    hitter_gid="???",  # fill in once known
+    pitcher_gid="1822798668",
+)
+picks = reader.fetch_all_picks()
+# picks is a list of SheetPick(player_name, owner, round_number, pool)
+```
+
+Then transform into `data/draft_history.json`.
+
 ### 1. League Draft History File (`data/draft_history.json`)
 
 Store last year's actual draft results so the optimizer can learn from league-specific tendencies. Structure:
@@ -19,7 +46,8 @@ Store last year's actual draft results so the optimizer can learn from league-sp
 }
 ```
 
-This needs to be populated manually (or from a sheet export) with last year's pitcher draft. Even just the pitcher picks would be valuable.
+Only pitcher picks are needed for the RP analysis. Cross-reference player names against
+`data/players.json` to resolve SP vs RP position.
 
 ### 2. League ADP Adjustment in `config.py`
 
@@ -31,16 +59,26 @@ league_adp_adjustments: dict[str, float]  # e.g. {"RP": +2.5} means RPs go ~2.5 
 
 This can be computed from `draft_history.json` (actual pick vs consensus ADP) or set manually.
 
+**Current LeagueConfig fields** (for reference): `num_teams`, `draft_type`,
+`hitting_categories`, `pitching_categories`, `inverse_categories`,
+`category_weights`, `roster_slots`. Add `league_adp_adjustments` with
+`field(default_factory=dict)`.
+
 ### 3. Pick Safety Adjustment in `optimizer.py`
 
 The biggest practical impact: **pick_safety currently assumes other teams draft positions uniformly based on unfilled slots.** If your league consistently delays RPs, the threat model should reflect that:
 
-- In `pick_safety()`, apply a `league_adp_adjustment` multiplier to the per-team `pick_rate` for RP. If RPs go 2+ rounds later in your league, the probability of someone sniping an RP before your turn drops significantly.
+- In `pick_safety()` (lines ~886-898), apply a `league_adp_adjustment` multiplier to the per-team `pick_rate` for RP. If RPs go 2+ rounds later in your league, the probability of someone sniping an RP before your turn drops significantly.
+- Current pick_rate logic: `pick_rate = 1.0 / max(unfilled, 1)` — multiply this by a discount factor for positions with league adjustments.
 - This makes RP show as `[SAFE]` more often (correctly), and lets you wait longer.
 
 ### 4. "RP Discount Window" Signal in Recommendations
 
-Add a new tag `[WAIT]` for RPs when pick safety says you can safely delay. Conversely, add `[SNIPE]` when an elite RP is available and the league tendency means you can grab them at a discount others won't contest.
+Build on the existing `annotate_safety()` method (lines ~136-171) which already attaches
+`[safe]` and `[reach]` tags. Add two new tags:
+
+- `[WAIT]` — for RPs when pick safety is `[SAFE]` and league history says they'll slide
+- `[SNIPE]` — when an elite RP (top-tier) is available at a discount the league won't contest
 
 The key insight: **the optimal counter-strategy depends on your roster needs:**
 
@@ -49,10 +87,19 @@ The key insight: **the optimal counter-strategy depends on your roster needs:**
 
 ### 5. Implementation Plan
 
+**Step-by-step:**
+1. Extract 2025 pitcher draft from the Google Sheet (Step 0 above)
+2. Save to `data/draft_history.json`
+3. Compute the RP round-shift from draft history vs ADP
+4. Add `league_adp_adjustments` field to `LeagueConfig` in `config.py` (~5 lines)
+5. Apply adjustment in `pick_safety()` pick_rate calculation in `optimizer.py` (~15 lines)
+6. Add WAIT/SNIPE tag logic in `annotate_safety()` in `optimizer.py` (~20 lines)
+7. Test with mock draft state to verify RP signals change appropriately
+
 **Files to modify:**
 - `src/drafter/config.py` — Add `league_adp_adjustments` field to `LeagueConfig`
-- `src/drafter/optimizer.py` — Adjust `pick_safety()` pick_rate calculation for positions with league adjustments; add WAIT/SNIPE tag logic
-- `data/draft_history.json` — New file, populated with 2025 pitcher draft order
+- `src/drafter/optimizer.py` — Adjust `pick_safety()` pick_rate; extend `annotate_safety()` with WAIT/SNIPE
+- `data/draft_history.json` — New file, populated from the 2025 sheet
 
 **Files to create:**
 - None beyond the data file
