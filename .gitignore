@@ -7,3 +7,5 @@ build/
 .DS_Store
 *.xlsm
 *.xlsx
+draft_state.json
+imessage_state.json

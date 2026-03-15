@@ -1,0 +1,27 @@
+{
+  "chat_id": 5,
+  "chat_name": "NPL raft⚾️",
+  "my_phone": "me",
+  "draft_position": null,
+  "team_map": {
+    "+16107804370": "Team 1",
+    "+16107558224": "Team 2",
+    "+16107404600": "Team 3",
+    "+16103121637": "Team 4",
+    "+16108884319": "Team 5",
+    "+16106204506": "Team 6",
+    "+14846539023": "Team 7",
+    "+16103129753": "Team 8",
+    "+16105633504": "Team 9",
+    "+14847985093": "Team 10",
+    "+14842385360": "Team 11",
+    "+16107558673": "Team 12",
+    "fiedorek18@gmail.com": "Team 13",
+    "me": "MyTeam"
+  },
+  "draft_order": [
+    "Team 1", "Team 2", "Team 3", "Team 4",
+    "Team 5", "Team 6", "Team 7", "Team 8",
+    "Team 9", "Team 10", "Team 11", "Team 12"
+  ]
+}
